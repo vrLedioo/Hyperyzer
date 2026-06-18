@@ -1,13 +1,13 @@
 """Unified access gate for analysis (idea + video).
 
 An analysis is allowed via exactly one of these paths, checked in order:
-  1. BYOK      - caller supplied their own OpenAI key (free, no server cost)
+  1. BYOK      - caller supplied their own OpenAI key (free, uses OpenAI cloud)
   2. subscription - logged-in user with an active subscription (unlimited)
   3. credit    - logged-in user with >= 1 credit (consumes one on success)
   4. pay-token - a valid single-use token from a paid Stripe checkout
 
-If none apply, access is denied (402) and the caller must pay, subscribe,
-buy credits, or provide their own key.
+Paths 2-4 use the server's configured LLM provider, which may be a free local
+endpoint (Ollama) requiring no key at all.
 """
 from dataclasses import dataclass
 from typing import Optional
@@ -16,7 +16,7 @@ import jwt
 from sqlmodel import Session
 
 from auth import PURPOSE_PAY, decode_token
-from config import settings
+from llm import server_llm_configured
 from models import RedeemedSession, User
 
 
@@ -28,8 +28,8 @@ class AccessDenied(Exception):
 
 @dataclass
 class AccessGrant:
-    api_key: str
     method: str  # "byok" | "subscription" | "credit" | "pay-token"
+    byok_key: Optional[str] = None  # only set for the BYOK path
     user: Optional[User] = None
     session_id: Optional[str] = None
 
@@ -46,8 +46,7 @@ def _valid_pay_session(pay_token: Optional[str], session: Session) -> Optional[s
     session_id = payload.get("sub")
     if not session_id:
         return None
-    # Already spent?
-    if session.get(RedeemedSession, session_id):
+    if session.get(RedeemedSession, session_id):  # already spent?
         return None
     return session_id
 
@@ -59,31 +58,30 @@ def resolve_access(
     pay_token: Optional[str],
     session: Session,
 ) -> AccessGrant:
-    # 1. BYOK — always free, never touches the server key.
+    # 1. BYOK — always free, uses the caller's own OpenAI key.
     if user_api_key:
-        return AccessGrant(api_key=user_api_key, method="byok")
+        return AccessGrant(method="byok", byok_key=user_api_key)
 
-    # Every other path needs the server's OpenAI key.
-    if not settings.openai_api_key:
+    # Every other path uses the server's configured provider.
+    if not server_llm_configured():
         raise AccessDenied(
-            "Server has no OpenAI key configured. Provide your own key (BYOK).",
+            "Server has no AI provider configured. Provide your own OpenAI key (BYOK), "
+            "or configure a provider (e.g. a local Ollama endpoint) on the server.",
             status_code=503,
         )
 
     # 2. Active subscription — unlimited.
     if user and user.subscription_status == "active":
-        return AccessGrant(api_key=settings.openai_api_key, method="subscription", user=user)
+        return AccessGrant(method="subscription", user=user)
 
     # 3. Account credits.
     if user and user.credits > 0:
-        return AccessGrant(api_key=settings.openai_api_key, method="credit", user=user)
+        return AccessGrant(method="credit", user=user)
 
     # 4. Single-use pay token.
     session_id = _valid_pay_session(pay_token, session)
     if session_id:
-        return AccessGrant(
-            api_key=settings.openai_api_key, method="pay-token", session_id=session_id
-        )
+        return AccessGrant(method="pay-token", session_id=session_id)
 
     raise AccessDenied(
         "No usable access. Buy a single analysis, subscribe, use account credits, "

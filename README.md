@@ -25,9 +25,31 @@ potential**, and returns actionable feedback. Two modes:
 
 - **Python 3.11+** and **Node 18+**
 - **ffmpeg** on your PATH (required for video analysis) — verify with `ffmpeg -version`
-- An **OpenAI API key** (for the server-side / non-BYOK paths)
+- An AI provider for scoring/transcription. Pick one:
+  - **No key (local, free):** [Ollama](https://ollama.com) + a small model, e.g.
+    `ollama pull llama3.2:3b`. Transcription uses `faster-whisper` locally. This is the
+    default in `.env.example` (see the "Keyless local setup" block).
+  - **OpenAI key:** set `OPENAI_API_KEY` and leave `LLM_BASE_URL` empty.
+  - **Other OpenAI-compatible API:** e.g. Groq's free tier — set `LLM_BASE_URL`,
+    `LLM_API_KEY`, `LLM_MODEL`.
 - A **Stripe** account in test mode + the **Stripe CLI** (for local webhooks) — only needed
   to exercise billing
+
+### Keyless local setup (no OpenAI key)
+
+```bash
+# 1. Install Ollama (https://ollama.com), then pull a small, fast model:
+ollama pull llama3.2:3b
+# 2. In backend/.env:
+#    LLM_BASE_URL=http://localhost:11434/v1
+#    LLM_API_KEY=ollama
+#    LLM_MODEL=llama3.2:3b
+#    TRANSCRIPTION_PROVIDER=local
+```
+
+Scoring then runs entirely on your machine; video transcription uses `faster-whisper`
+(downloads a small model on first use). Note: on a CPU-only machine, expect ~10–40s per
+analysis — small models are strongly recommended (avoid 7B+ "thinking" models like qwen3).
 
 ## Setup
 

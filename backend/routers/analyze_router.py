@@ -82,7 +82,7 @@ def analyze_idea(
         raise HTTPException(status_code=e.status_code, detail=str(e))
 
     try:
-        result = score_content(request.title, request.script, grant.api_key)
+        result = score_content(request.title, request.script, byok_key=grant.byok_key)
     except ScoringError as e:
         if grant.method == "byok":
             raise HTTPException(

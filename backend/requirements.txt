@@ -14,3 +14,5 @@ PyJWT
 stripe
 httpx
 pytest
+# Local, keyless transcription (alternative to the OpenAI Whisper API)
+faster-whisper

@@ -53,7 +53,7 @@ def _apply_consumption_bg(session: Session, method: str, user_id: Optional[int],
         session.commit()
 
 
-def _process_video(job_id: int, file_path: str, title: str, api_key: str,
+def _process_video(job_id: int, file_path: str, title: str, byok_key: Optional[str],
                    method: str, user_id: Optional[int], session_id: Optional[str]):
     """Runs in the background. Owns its own DB session."""
     with Session(engine) as session:
@@ -65,13 +65,13 @@ def _process_video(job_id: int, file_path: str, title: str, api_key: str,
             session.add(job)
             session.commit()
 
-            transcript = transcribe(file_path, api_key)
+            transcript = transcribe(file_path, byok_key=byok_key)
 
             job.status = "scoring"
             session.add(job)
             session.commit()
 
-            result = score_content(title, transcript, api_key)
+            result = score_content(title, transcript, byok_key=byok_key)
 
             analysis = Analysis(
                 user_id=user_id, kind="video", title=title, input_text=transcript,
@@ -150,7 +150,7 @@ async def analyze_video(
     session.refresh(job)
 
     background.add_task(
-        _process_video, job.id, file_path, title, grant.api_key,
+        _process_video, job.id, file_path, title, grant.byok_key,
         grant.method, user.id if user else None, grant.session_id,
     )
     return JobResponse(job_id=job.id, status=job.status)
