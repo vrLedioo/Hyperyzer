@@ -1,15 +1,15 @@
 """Video analysis: upload → ffmpeg → Whisper → score, run as a background job."""
 import os
-import shutil
 import uuid
 from datetime import datetime
 from typing import Optional
 
 from fastapi import (
-    APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile,
+    APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile,
 )
 from pydantic import BaseModel
-from sqlmodel import Session
+from sqlalchemy import func
+from sqlmodel import Session, select
 
 from access import AccessDenied, resolve_access
 from auth import get_optional_user
@@ -17,21 +17,25 @@ from config import settings
 from db import engine, get_session
 from models import Analysis, RedeemedSession, User, VideoJob
 from services.scoring import ScoringError, score_content
-from services.transcription import TranscriptionError, transcribe
+from services.transcription import TranscriptionError, transcribe, transcription_satisfiable
 
 router = APIRouter(prefix="/api", tags=["video"])
 
+NON_TERMINAL = ("queued", "transcribing", "scoring")
+ALLOWED_VIDEO_EXTS = {".mp4", ".mov", ".webm", ".mkv", ".m4v", ".avi", ".flv", ".wmv"}
+
 
 class JobResponse(BaseModel):
-    job_id: int
+    job_id: str  # opaque token used for polling
     status: str
 
 
 class JobStatusResponse(BaseModel):
-    job_id: int
+    job_id: str
     status: str
     error: Optional[str] = None
     title: str
+    pay_token_consumed: bool = False
     # populated when status == "done"
     transcript: Optional[str] = None
     hook_score: Optional[int] = None
@@ -107,6 +111,7 @@ def _process_video(job_id: int, file_path: str, title: str, byok_key: Optional[s
 
 @router.post("/analyze-video", response_model=JobResponse)
 async def analyze_video(
+    request: Request,
     background: BackgroundTasks,
     title: str = Form(...),
     file: UploadFile = File(...),
@@ -115,6 +120,15 @@ async def analyze_video(
     user: Optional[User] = Depends(get_optional_user),
     session: Session = Depends(get_session),
 ):
+    max_bytes = settings.max_upload_mb * 1024 * 1024
+
+    # Cheap pre-check: reject obviously-oversized uploads before streaming to disk.
+    content_length = request.headers.get("content-length")
+    if content_length and content_length.isdigit() and int(content_length) > max_bytes:
+        raise HTTPException(
+            status_code=413, detail=f"File too large (max {settings.max_upload_mb} MB)."
+        )
+
     # Gate access up front (reject before doing any expensive work).
     try:
         grant = resolve_access(
@@ -123,27 +137,49 @@ async def analyze_video(
     except AccessDenied as e:
         raise HTTPException(status_code=e.status_code, detail=str(e))
 
-    # Persist the upload.
+    # Reject if transcription can't actually run for this request.
+    if not transcription_satisfiable(grant.byok_key):
+        raise HTTPException(
+            status_code=503,
+            detail="Transcription is not configured. Use your own OpenAI key, or set "
+                   "TRANSCRIPTION_PROVIDER=local on the server.",
+        )
+
+    # Concurrency / DoS guard: cap simultaneous in-flight jobs.
+    active = session.exec(
+        select(func.count()).select_from(VideoJob).where(VideoJob.status.in_(NON_TERMINAL))
+    ).one()
+    if active >= settings.max_active_video_jobs:
+        raise HTTPException(
+            status_code=429, detail="The server is busy with other analyses. Please try again shortly."
+        )
+
+    # Persist the upload (sanitize the client-supplied extension to an allowlist).
     os.makedirs(settings.upload_dir, exist_ok=True)
-    ext = os.path.splitext(file.filename or "")[1] or ".mp4"
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in ALLOWED_VIDEO_EXTS:
+        ext = ".mp4"
     stored_name = f"{uuid.uuid4().hex}{ext}"
     file_path = os.path.join(settings.upload_dir, stored_name)
     size = 0
-    max_bytes = settings.max_upload_mb * 1024 * 1024
-    with open(file_path, "wb") as out:
-        while chunk := await file.read(1024 * 1024):
-            size += len(chunk)
-            if size > max_bytes:
-                out.close()
-                os.remove(file_path)
-                raise HTTPException(
-                    status_code=413,
-                    detail=f"File too large (max {settings.max_upload_mb} MB).",
-                )
-            out.write(chunk)
+    try:
+        with open(file_path, "wb") as out:
+            while chunk := await file.read(1024 * 1024):
+                size += len(chunk)
+                if size > max_bytes:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"File too large (max {settings.max_upload_mb} MB).",
+                    )
+                out.write(chunk)
+    except HTTPException:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        raise
 
     job = VideoJob(
-        user_id=user.id if user else None, title=title, filename=stored_name, status="queued",
+        user_id=user.id if user else None, title=title, filename=stored_name,
+        status="queued", method=grant.method,
     )
     session.add(job)
     session.commit()
@@ -153,18 +189,26 @@ async def analyze_video(
         _process_video, job.id, file_path, title, grant.byok_key,
         grant.method, user.id if user else None, grant.session_id,
     )
-    return JobResponse(job_id=job.id, status=job.status)
+    return JobResponse(job_id=job.token, status=job.status)
 
 
-@router.get("/jobs/{job_id}", response_model=JobStatusResponse)
-def job_status(job_id: int, session: Session = Depends(get_session)):
-    job = session.get(VideoJob, job_id)
+@router.get("/jobs/{job_token}", response_model=JobStatusResponse)
+def job_status(
+    job_token: str,
+    user: Optional[User] = Depends(get_optional_user),
+    session: Session = Depends(get_session),
+):
+    job = session.exec(select(VideoJob).where(VideoJob.token == job_token)).first()
+    # 404 (not 403) on a mismatch so we never confirm a job exists to a non-owner.
     if not job:
+        raise HTTPException(status_code=404, detail="Job not found.")
+    if job.user_id is not None and (user is None or user.id != job.user_id):
         raise HTTPException(status_code=404, detail="Job not found.")
 
     resp = JobStatusResponse(
-        job_id=job.id, status=job.status, error=job.error,
+        job_id=job.token, status=job.status, error=job.error,
         title=job.title, created_at=job.created_at,
+        pay_token_consumed=(job.status == "done" and job.method == "pay-token"),
     )
     if job.status == "done" and job.analysis_id:
         analysis = session.get(Analysis, job.analysis_id)

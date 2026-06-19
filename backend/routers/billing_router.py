@@ -94,8 +94,17 @@ def verify_pay_per_use(req: VerifyRequest):
         sess = stripe.checkout.Session.retrieve(req.session_id)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"Stripe error: {e}")
-    if sess.get("mode") != "payment" or sess.get("payment_status") != "paid":
-        raise HTTPException(status_code=402, detail="Payment not completed for this session.")
+    # Validate it is genuinely a paid pay-per-use purchase — not just any paid
+    # session on this account. Pin mode, payment status, currency, and amount so
+    # an unrelated/cheaper session can't be laundered into a free analysis token.
+    # (Use getattr: Stripe's StripeObject doesn't support dict.get().)
+    if (
+        getattr(sess, "mode", None) != "payment"
+        or getattr(sess, "payment_status", None) != "paid"
+        or getattr(sess, "currency", None) != "usd"
+        or getattr(sess, "amount_total", None) != settings.pay_per_use_amount_cents
+    ):
+        raise HTTPException(status_code=402, detail="Payment not valid for an analysis.")
     return PayTokenResponse(pay_token=create_pay_token(req.session_id))
 
 
@@ -103,23 +112,26 @@ def verify_pay_per_use(req: VerifyRequest):
 async def stripe_webhook(request: Request, session: Session = Depends(get_session)):
     """Fulfill subscriptions: activate on completed checkout, deactivate on cancel."""
     _require_stripe()
+    # NEVER trust an unsigned webhook body — forging one would let anyone activate
+    # a subscription for any account. A signing secret is mandatory.
+    if not settings.stripe_webhook_secret:
+        raise HTTPException(
+            status_code=503,
+            detail="Webhook signing secret not configured (run `stripe listen`).",
+        )
     payload = await request.body()
     sig = request.headers.get("stripe-signature")
+    try:
+        # Verify the signature (raises on tampering / bad secret / stale timestamp).
+        stripe.Webhook.construct_event(payload, sig, settings.stripe_webhook_secret)
+    except Exception as e:  # noqa: BLE001 - bad signature / parse
+        raise HTTPException(status_code=400, detail=f"Webhook error: {e}")
 
-    if settings.stripe_webhook_secret:
-        try:
-            event = stripe.Webhook.construct_event(
-                payload, sig, settings.stripe_webhook_secret
-            )
-        except Exception as e:  # noqa: BLE001 - bad signature / parse
-            raise HTTPException(status_code=400, detail=f"Webhook error: {e}")
-    else:
-        # Dev fallback when no signing secret is configured.
-        import json
-        event = json.loads(payload)
-
-    etype = event["type"]
-    obj = event["data"]["object"]
+    # Operate on plain dicts (Stripe's StripeObject doesn't support dict.get()).
+    import json
+    event = json.loads(payload)
+    etype = event.get("type")
+    obj = (event.get("data") or {}).get("object") or {}
 
     if etype == "checkout.session.completed" and obj.get("mode") == "subscription":
         user = _find_user_for_subscription(obj, session)

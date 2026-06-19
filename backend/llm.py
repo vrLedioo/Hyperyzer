@@ -6,6 +6,7 @@ app run with no OpenAI key — point `LLM_BASE_URL` at a local Ollama server.
 """
 from dataclasses import dataclass
 from typing import Optional
+from urllib.parse import urlparse
 
 import httpx
 from openai import OpenAI
@@ -44,8 +45,17 @@ def build_chat_client(byok_key: Optional[str] = None) -> ChatClient:
 
 
 def is_ollama() -> bool:
-    """True when the configured endpoint is a local Ollama server."""
-    return bool(settings.llm_base_url and "11434" in settings.llm_base_url)
+    """True when the configured endpoint is an Ollama server.
+
+    Detect by the actual URL port (11434) or 'ollama' in the host, rather than a
+    loose substring match (which both false-negatives on non-default ports and
+    false-positives on unrelated URLs that happen to contain the digits).
+    """
+    if not settings.llm_base_url:
+        return False
+    parsed = urlparse(settings.llm_base_url)
+    host = (parsed.hostname or "").lower()
+    return parsed.port == 11434 or "ollama" in host
 
 
 def ollama_chat_json(model: str, system: str, user: str, temperature: float = 0.6) -> str:
@@ -67,6 +77,8 @@ def ollama_chat_json(model: str, system: str, user: str, temperature: float = 0.
     }
     if settings.llm_disable_thinking:
         payload["think"] = False
-    resp = httpx.post(f"{base}/api/chat", json=payload, timeout=600.0)
+    # Fail fast on connect (5s) but allow a long read budget for slow CPU generation.
+    timeout = httpx.Timeout(read=600.0, connect=5.0, write=30.0, pool=5.0)
+    resp = httpx.post(f"{base}/api/chat", json=payload, timeout=timeout)
     resp.raise_for_status()
     return resp.json()["message"]["content"]

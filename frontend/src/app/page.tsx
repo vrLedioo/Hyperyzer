@@ -35,18 +35,30 @@ interface AnalysisResult {
   retention_score: number;
   viral_score: number;
   feedback: string;
-  transcript?: string;
+  transcript?: string | null;
+  pay_token_consumed?: boolean;
 }
 
 interface HistoryItem {
   id: number;
   kind: string;
   title: string;
+  transcript?: string | null;
   hook_score: number;
   retention_score: number;
   viral_score: number;
   feedback: string;
   created_at: string;
+}
+
+interface AppConfig {
+  billing_enabled: boolean;
+  subscription_enabled: boolean;
+  byok_enabled: boolean;
+  server_llm_ready: boolean;
+  provider: string;
+  pay_per_use_cents: number;
+  free_credits_on_signup: number;
 }
 
 type Mode = 'idea' | 'video';
@@ -73,6 +85,7 @@ export default function Home() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [config, setConfig] = useState<AppConfig | null>(null);
 
   const charCount = script.length;
   const wordCount = script.trim() ? script.trim().split(/\s+/).length : 0;
@@ -92,6 +105,22 @@ export default function Home() {
   }, [user]);
 
   useEffect(() => { loadHistory(); }, [loadHistory]);
+
+  // Load server capabilities (to adapt billing UI). Retry once on transient failure.
+  useEffect(() => {
+    let cancelled = false;
+    const load = async (attempt = 0): Promise<void> => {
+      try {
+        const cfg = await api<AppConfig>('/api/config', { auth: false });
+        if (!cancelled) setConfig(cfg);
+      } catch (e) {
+        if (attempt < 1) return load(attempt + 1);
+        console.error('Failed to load /api/config:', e);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, []);
 
   // Handle Stripe redirects (pay-per-use + subscription).
   useEffect(() => {
@@ -128,9 +157,11 @@ export default function Home() {
 
   const consumePayTokenIfAny = () => localStorage.getItem(PAY_TOKEN_KEY) || undefined;
 
-  const afterSuccess = async () => {
-    // A pay token is single-use; drop it once spent.
-    localStorage.removeItem(PAY_TOKEN_KEY);
+  const afterSuccess = async (payTokenConsumed: boolean) => {
+    // Only drop the pay token if the server actually spent it — otherwise a
+    // higher-priority path (credits/subscription/BYOK) was used and the paid
+    // token must be preserved for a later analysis.
+    if (payTokenConsumed) localStorage.removeItem(PAY_TOKEN_KEY);
     await Promise.all([refresh(), loadHistory()]);
   };
 
@@ -149,7 +180,7 @@ export default function Home() {
         }),
       });
       setResult(data);
-      await afterSuccess();
+      await afterSuccess(!!data.pay_token_consumed);
     } catch (err: any) {
       setError(err.message || 'An error occurred while connecting to the server.');
     } finally {
@@ -185,6 +216,7 @@ export default function Home() {
       const { job_id } = await res.json();
 
       // Poll for completion.
+      let payConsumed = false;
       await new Promise<void>((resolve, reject) => {
         pollRef.current = setInterval(async () => {
           try {
@@ -193,6 +225,7 @@ export default function Home() {
             else if (job.status === 'scoring') setStatusLabel('Scoring with AI…');
             else if (job.status === 'done') {
               clearInterval(pollRef.current!);
+              payConsumed = !!job.pay_token_consumed;
               setResult({
                 hook_score: job.hook_score, retention_score: job.retention_score,
                 viral_score: job.viral_score, feedback: job.feedback, transcript: job.transcript,
@@ -208,7 +241,7 @@ export default function Home() {
           }
         }, 2000);
       });
-      await afterSuccess();
+      await afterSuccess(payConsumed);
     } catch (err: any) {
       setError(err.message || 'An error occurred during video analysis.');
     } finally {
@@ -286,7 +319,18 @@ export default function Home() {
                 const { label, color } = scoreLabel(item.viral_score);
                 return (
                   <div key={item.id} className="flex items-center justify-between p-3 rounded-lg hover:bg-white/50 cursor-pointer transition-colors border border-transparent hover:border-black/5"
-                    onClick={() => setResult({ hook_score: item.hook_score, retention_score: item.retention_score, viral_score: item.viral_score, feedback: item.feedback })}>
+                    onClick={() => {
+                      // Stop any in-flight analysis so it can't overwrite the restored view.
+                      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+                      setIsLoading(false);
+                      setStatusLabel('');
+                      setError('');
+                      setResult({
+                        hook_score: item.hook_score, retention_score: item.retention_score,
+                        viral_score: item.viral_score, feedback: item.feedback,
+                        transcript: item.transcript ?? undefined,
+                      });
+                    }}>
                     <div className="min-w-0 mr-3">
                       <p className="text-sm font-semibold text-slate-700 truncate">{item.title}</p>
                       <p className="text-[10px] text-slate-400 font-bold uppercase">{item.kind}</p>
@@ -340,15 +384,23 @@ export default function Home() {
               className="w-full text-xs px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 focus:border-pink-500 outline-none" />
           )}
 
-          <div className="h-px w-full bg-slate-100"></div>
+          {(config?.billing_enabled || config?.subscription_enabled) && <div className="h-px w-full bg-slate-100"></div>}
 
-          <button onClick={handlePayPerUse} className="flex items-center gap-2 w-full p-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg transition-colors text-sm font-semibold justify-center cursor-pointer">
-            <CreditCard className="w-4 h-4" /> Pay per use ($0.99)
-          </button>
-          {user?.subscription_status !== 'active' && (
+          {config?.billing_enabled && (
+            <button onClick={handlePayPerUse} className="flex items-center gap-2 w-full p-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg transition-colors text-sm font-semibold justify-center cursor-pointer">
+              <CreditCard className="w-4 h-4" /> Pay per use (${(config.pay_per_use_cents / 100).toFixed(2)})
+            </button>
+          )}
+          {config?.subscription_enabled && user?.subscription_status !== 'active' && (
             <button onClick={handleSubscribe} className="flex items-center gap-2 w-full p-2 bg-gradient-to-r from-pink-500 to-orange-500 hover:opacity-95 text-white rounded-lg transition-all text-sm font-semibold justify-center cursor-pointer">
               <Crown className="w-4 h-4" /> Go Pro (unlimited)
             </button>
+          )}
+          {!config?.billing_enabled && !config?.subscription_enabled && (
+            <p className="text-xs text-slate-400 font-medium leading-relaxed">
+              {config?.provider === 'local' ? 'Running on a free local AI model. ' : ''}
+              {user ? 'Use your account credits, or add your own OpenAI key above.' : 'Sign up for free credits, or add your own OpenAI key above.'}
+            </p>
           )}
         </div>
       </aside>

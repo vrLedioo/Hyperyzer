@@ -27,12 +27,14 @@ class AnalyzeResponse(BaseModel):
     retention_score: int
     viral_score: int
     feedback: str
+    pay_token_consumed: bool = False
 
 
 class AnalysisOut(BaseModel):
     id: int
     kind: str
     title: str
+    transcript: Optional[str] = None
     hook_score: int
     retention_score: int
     viral_score: int
@@ -103,6 +105,7 @@ def analyze_idea(
         retention_score=result.retention_score,
         viral_score=result.viral_score,
         feedback=result.feedback,
+        pay_token_consumed=(grant.method == "pay-token"),
     )
 
 
@@ -119,6 +122,7 @@ def history(
     return [
         AnalysisOut(
             id=r.id, kind=r.kind, title=r.title,
+            transcript=r.input_text if r.kind == "video" else None,
             hook_score=r.hook_score, retention_score=r.retention_score,
             viral_score=r.viral_score, feedback=r.feedback, created_at=r.created_at,
         )
