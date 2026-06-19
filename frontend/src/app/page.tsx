@@ -221,9 +221,11 @@ export default function Landing() {
       <footer className="max-w-6xl mx-auto px-5 sm:px-8 py-10 border-t border-black/5 flex flex-col sm:flex-row items-center justify-between gap-4">
         <Logo />
         <p className="text-sm text-slate-500 font-medium">© {new Date().getFullYear()} VidAnalyzer · AI feedback for creators</p>
-        <div className="flex gap-4 text-sm font-bold text-slate-600">
+        <div className="flex flex-wrap gap-4 text-sm font-bold text-slate-600">
           <Link href="/app" className="hover:text-slate-900">Open app</Link>
           <Link href="/login" className="hover:text-slate-900">Log in</Link>
+          <Link href="/privacy" className="hover:text-slate-900">Privacy</Link>
+          <Link href="/terms" className="hover:text-slate-900">Terms</Link>
         </div>
       </footer>
     </div>
