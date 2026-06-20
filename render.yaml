@@ -22,29 +22,27 @@ services:
           property: connectionString
       - key: OPENAI_API_KEY
         sync: false            # set in dashboard
-      # --- Payments: Lemon Squeezy (works in Kosovo). Set these in the dashboard. ---
+      # --- Payments: Paddle (Merchant of Record, works in Kosovo). Set these in the dashboard. ---
       - key: PAYMENT_PROVIDER
-        value: lemonsqueezy
-      - key: LEMONSQUEEZY_API_KEY
-        sync: false
-      - key: LEMONSQUEEZY_STORE_ID
-        sync: false
-      - key: LEMONSQUEEZY_WEBHOOK_SECRET
-        sync: false
-      # One variant id per subscription plan (create in the LS dashboard):
-      - key: LS_VARIANT_CREATOR
+        value: paddle
+      - key: PADDLE_API_KEY
+        sync: false            # from Paddle dashboard → Developer → Authentication
+      - key: PADDLE_WEBHOOK_SECRET
+        sync: false            # from Paddle dashboard → Developer → Notifications → signing secret
+      # One price id per subscription plan (create recurring prices in Paddle dashboard):
+      - key: PADDLE_PRICE_CREATOR
         sync: false            # Creator €14/mo
-      - key: LS_VARIANT_PRO
+      - key: PADDLE_PRICE_PRO
         sync: false            # Pro €29/mo
-      - key: LS_VARIANT_AGENCY
+      - key: PADDLE_PRICE_AGENCY
         sync: false            # Agency €79/mo
-      # One variant id per one-time credit pack:
-      - key: LS_VARIANT_PACK_SMALL
+      # One price id per one-time credit pack:
+      - key: PADDLE_PRICE_PACK_SMALL
         sync: false            # 50 credits / €9
-      - key: LS_VARIANT_PACK_LARGE
+      - key: PADDLE_PRICE_PACK_LARGE
         sync: false            # 200 credits / €29
       - key: FRONTEND_URL
-        sync: false            # your Vercel URL, e.g. https://hyperyzer.vercel.app
+        sync: false            # your Vercel/custom domain URL, e.g. https://hyperyzer.com
 
 databases:
   - name: hyperyzer-db

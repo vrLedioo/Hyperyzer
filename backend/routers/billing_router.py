@@ -1,8 +1,15 @@
-"""Billing — provider-aware (Stripe or Lemon Squeezy).
+"""Billing — provider-aware (Paddle, Stripe, or Lemon Squeezy).
 
 Same public checkout paths regardless of provider, so the frontend only needs the
 capability flags + catalog from /api/config. PAYMENT_PROVIDER selects the provider.
 
+- Paddle (Merchant of Record, works in Kosovo): multi-plan subscriptions +
+  one-time credit packs. Fulfillment is webhook-driven:
+    * transaction.completed (origin=web)              -> grant pack credits (idempotent)
+    * transaction.completed (origin=subscription_charge) -> refill monthly allowance
+    * transaction.updated   (status=refunded)         -> deduct pack credits (idempotent)
+    * subscription.created/updated                    -> activate/update plan
+    * subscription.canceled                           -> revoke plan + allowance
 - Stripe: subscription + anonymous one-off pay-per-use (verify -> single-use token).
 - Lemon Squeezy (Merchant of Record, works in Kosovo): multi-plan subscriptions +
   one-time credit packs. Fulfillment is webhook-driven:
@@ -27,6 +34,7 @@ from db import get_session
 from models import RedeemedSession, User
 from plans import pack_credits, plan_monthly_credits
 from services import lemonsqueezy as ls
+from services import paddle as paddle_svc
 
 router = APIRouter(prefix="/api", tags=["billing"])
 
@@ -87,6 +95,21 @@ def checkout_subscription(
     if not settings.subscription_enabled:
         raise HTTPException(status_code=503, detail="Subscriptions are not configured.")
 
+    if settings.payment_provider == "paddle":
+        price_id = settings.paddle_plan_price_map.get(req.plan)
+        if not price_id:
+            raise HTTPException(status_code=400, detail="Unknown or unavailable plan.")
+        try:
+            url = paddle_svc.create_checkout(
+                price_id=price_id,
+                success_url=f"{settings.frontend_url}/?subscribed=success",
+                customer_email=user.email,
+                custom_data={"user_id": user.id, "kind": "subscription", "plan": req.plan},
+            )
+        except paddle_svc.PaddleError as e:
+            raise HTTPException(status_code=502, detail=f"Paddle error: {e}")
+        return CheckoutResponse(url=url)
+
     if settings.payment_provider == "stripe":
         # Stripe path keeps a single configured price (plan is ignored here).
         try:
@@ -125,9 +148,26 @@ def checkout_credits(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
-    """Buy a one-time credit pack (Lemon Squeezy). Requires a logged-in account."""
+    """Buy a one-time credit pack. Requires a logged-in account."""
     if not settings.credits_purchase_enabled:
         raise HTTPException(status_code=503, detail="Credit purchases are not configured.")
+
+    if settings.payment_provider == "paddle":
+        price_id = settings.paddle_pack_price_map.get(req.pack)
+        if not price_id:
+            raise HTTPException(status_code=400, detail="Unknown or unavailable credit pack.")
+        try:
+            url = paddle_svc.create_checkout(
+                price_id=price_id,
+                success_url=f"{settings.frontend_url}/?credits=success",
+                customer_email=user.email,
+                custom_data={"user_id": user.id, "kind": "credits", "pack": req.pack},
+            )
+        except paddle_svc.PaddleError as e:
+            raise HTTPException(status_code=502, detail=f"Paddle error: {e}")
+        return CheckoutResponse(url=url)
+
+    # Lemon Squeezy
     variant_id = settings.pack_variant_map.get(req.pack)
     if not variant_id:
         raise HTTPException(status_code=400, detail="Unknown or unavailable credit pack.")
@@ -196,6 +236,121 @@ def verify_pay_per_use(req: VerifyRequest):
 # --------------------------------------------------------------------------- #
 # Webhooks
 # --------------------------------------------------------------------------- #
+
+# -- Paddle helpers --------------------------------------------------------- #
+def _paddle_email(data: dict) -> str | None:
+    return (data.get("customer") or {}).get("email")
+
+
+def _plan_from_paddle_items(items: list) -> str | None:
+    for item in items:
+        price_id = str((item.get("price") or {}).get("id") or item.get("price_id") or "")
+        plan_key = settings.paddle_price_to_plan.get(price_id)
+        if plan_key:
+            return plan_key
+    return None
+
+
+@router.post("/paddle/webhook")
+async def paddle_webhook(request: Request, session: Session = Depends(get_session)):
+    """Fulfill Paddle transactions and subscription events."""
+    if settings.payment_provider != "paddle":
+        raise HTTPException(status_code=404, detail="Not found.")
+    if not settings.paddle_webhook_secret:
+        raise HTTPException(status_code=503, detail="Webhook signing secret not configured.")
+
+    payload = await request.body()
+    sig = request.headers.get("paddle-signature")
+    if not paddle_svc.verify_signature(payload, sig):
+        raise HTTPException(status_code=400, detail="Invalid webhook signature.")
+
+    event = json.loads(payload)
+    event_type = str(event.get("event_type") or "")
+    data = event.get("data") or {}
+    custom = data.get("custom_data") or {}
+    data_id = str(data.get("id") or "")
+
+    # --- One-time credit pack purchase -------------------------------------- #
+    if event_type == "transaction.completed":
+        origin = str(data.get("origin") or "")
+
+        if origin == "subscription_charge":
+            # Renewal invoice — refill the monthly allowance.
+            sub_id = str(data.get("subscription_id") or "")
+            user = _find_user_by(session, user_id=custom.get("user_id"), email=_paddle_email(data))
+            if not user and sub_id:
+                user = session.exec(select(User).where(User.subscription_id == sub_id)).first()
+            if user:
+                user.subscription_status = "active"
+                user.subscription_credits = plan_monthly_credits(user.plan)
+                session.add(user)
+                session.commit()
+
+        elif custom.get("kind") == "credits":
+            pack_key = custom.get("pack")
+            credits = pack_credits(pack_key)
+            key = f"paddle_txn_{data_id}"
+            if credits and not session.get(RedeemedSession, key):
+                user = _find_user_by(session, user_id=custom.get("user_id"), email=_paddle_email(data))
+                if user:
+                    user.credits += credits
+                    session.add(user)
+                    session.add(RedeemedSession(session_id=key))
+                    session.commit()
+
+    # --- Credit pack refund ------------------------------------------------- #
+    elif event_type == "transaction.updated":
+        status = str(data.get("status") or "")
+        if status in ("refunded", "partially_refunded") and custom.get("kind") == "credits":
+            pack_key = custom.get("pack")
+            credits = pack_credits(pack_key)
+            key = f"paddle_refund_{data_id}"
+            if credits and not session.get(RedeemedSession, key):
+                user = _find_user_by(session, user_id=custom.get("user_id"), email=_paddle_email(data))
+                if user:
+                    user.credits = max(0, user.credits - credits)
+                    session.add(user)
+                    session.add(RedeemedSession(session_id=key))
+                    session.commit()
+
+    # --- Subscriptions ------------------------------------------------------ #
+    elif event_type in ("subscription.created", "subscription.updated"):
+        status = str(data.get("status") or "")
+        plan_key = custom.get("plan") or _plan_from_paddle_items(data.get("items") or [])
+        user = _find_user_by(session, user_id=custom.get("user_id"), email=_paddle_email(data))
+        if not user and data_id:
+            user = session.exec(select(User).where(User.subscription_id == data_id)).first()
+        if user:
+            if status in paddle_svc.ACTIVE_STATUSES:
+                user.subscription_status = "active"
+                if data_id:
+                    user.subscription_id = data_id
+                if plan_key:
+                    plan_changed = plan_key != user.plan
+                    user.plan = plan_key
+                    if event_type == "subscription.created" or plan_changed:
+                        user.subscription_credits = plan_monthly_credits(plan_key)
+            elif status == "canceled":
+                user.subscription_status = "canceled"
+                user.plan = "free"
+                user.subscription_credits = 0
+            session.add(user)
+            session.commit()
+
+    elif event_type == "subscription.canceled":
+        user = _find_user_by(session, user_id=custom.get("user_id"), email=_paddle_email(data))
+        if not user and data_id:
+            user = session.exec(select(User).where(User.subscription_id == data_id)).first()
+        if user:
+            user.subscription_status = "canceled"
+            user.plan = "free"
+            user.subscription_credits = 0
+            session.add(user)
+            session.commit()
+
+    return {"received": True}
+
+
 @router.post("/stripe/webhook")
 async def stripe_webhook(request: Request, session: Session = Depends(get_session)):
     if settings.payment_provider != "stripe":

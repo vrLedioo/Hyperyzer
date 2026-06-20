@@ -88,7 +88,7 @@ class PackOut(BaseModel):
 
 
 class ConfigResponse(BaseModel):
-    payment_provider: str          # "none" | "stripe" | "lemonsqueezy"
+    payment_provider: str          # "none" | "paddle" | "stripe" | "lemonsqueezy"
     billing_enabled: bool          # any paid option available
     subscription_enabled: bool     # subscription checkout available
     credits_purchase_enabled: bool # logged-in credit-pack top-up (Lemon Squeezy)
@@ -113,13 +113,13 @@ def get_config():
     else:
         ai_provider = "openai"
 
-    plan_variants = settings.plan_variant_map
-    pack_variants = settings.pack_variant_map
+    available_plans = settings.available_plan_keys
+    available_packs = settings.available_pack_keys
     plans = [
-        PlanOut(key=k, available=k in plan_variants, **p) for k, p in PLANS.items()
+        PlanOut(key=k, available=k in available_plans, **p) for k, p in PLANS.items()
     ]
     packs = [
-        PackOut(key=k, available=k in pack_variants, **p) for k, p in PACKS.items()
+        PackOut(key=k, available=k in available_packs, **p) for k, p in PACKS.items()
     ]
 
     return ConfigResponse(

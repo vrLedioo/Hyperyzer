@@ -51,9 +51,9 @@ class Settings(BaseSettings):
     video_credit_cost: int = 5
 
     # --- Payments ---
-    # Active provider: "none" | "lemonsqueezy" | "stripe".
-    # Stripe is unavailable in some countries (e.g. Kosovo); Lemon Squeezy is a
-    # Merchant of Record that works there and handles tax/VAT + payouts.
+    # Active provider: "none" | "paddle" | "lemonsqueezy" | "stripe".
+    # Paddle and Lemon Squeezy are Merchants of Record that work in Kosovo and
+    # handle tax/VAT + payouts. Stripe is unavailable there.
     payment_provider: str = "none"
 
     # --- Stripe (used when payment_provider == "stripe") ---
@@ -61,6 +61,18 @@ class Settings(BaseSettings):
     stripe_webhook_secret: str | None = None
     stripe_subscription_price_id: str | None = None  # recurring price (monthly)
     pay_per_use_amount_cents: int = 99  # $0.99 single analysis (anonymous)
+
+    # --- Paddle (used when payment_provider == "paddle") ---
+    paddle_api_key: str | None = None
+    paddle_webhook_secret: str | None = None
+    paddle_sandbox: bool = False  # True -> sandbox-api.paddle.com
+    # One Paddle *price id* per subscription plan (see plans.PLANS).
+    paddle_price_creator: str | None = None
+    paddle_price_pro: str | None = None
+    paddle_price_agency: str | None = None
+    # One price id per one-time credit pack (see plans.PACKS).
+    paddle_price_pack_small: str | None = None
+    paddle_price_pack_large: str | None = None
 
     # --- Lemon Squeezy (used when payment_provider == "lemonsqueezy") ---
     lemonsqueezy_api_key: str | None = None
@@ -73,6 +85,30 @@ class Settings(BaseSettings):
     # One variant id per one-time credit pack (see plans.PACKS).
     ls_variant_pack_small: str | None = None
     ls_variant_pack_large: str | None = None
+
+    # --- Plan / pack <-> Paddle price maps ---
+    @property
+    def paddle_plan_price_map(self) -> dict[str, str]:
+        """plan_key -> price_id, for plans whose price is configured."""
+        raw = {
+            "creator": self.paddle_price_creator,
+            "pro": self.paddle_price_pro,
+            "agency": self.paddle_price_agency,
+        }
+        return {k: v for k, v in raw.items() if v}
+
+    @property
+    def paddle_pack_price_map(self) -> dict[str, str]:
+        """pack_key -> price_id, for packs whose price is configured."""
+        raw = {
+            "small": self.paddle_price_pack_small,
+            "large": self.paddle_price_pack_large,
+        }
+        return {k: v for k, v in raw.items() if v}
+
+    @property
+    def paddle_price_to_plan(self) -> dict[str, str]:
+        return {v: k for k, v in self.paddle_plan_price_map.items()}
 
     # --- Plan / pack <-> Lemon Squeezy variant maps ---
     @property
@@ -102,6 +138,23 @@ class Settings(BaseSettings):
     def variant_to_pack(self) -> dict[str, str]:
         return {v: k for k, v in self.pack_variant_map.items()}
 
+    # --- Provider-neutral availability maps (used by /api/config) ---
+    @property
+    def available_plan_keys(self) -> set:
+        if self.payment_provider == "paddle":
+            return set(self.paddle_plan_price_map.keys())
+        if self.payment_provider == "lemonsqueezy":
+            return set(self.plan_variant_map.keys())
+        return set()
+
+    @property
+    def available_pack_keys(self) -> set:
+        if self.payment_provider == "paddle":
+            return set(self.paddle_pack_price_map.keys())
+        if self.payment_provider == "lemonsqueezy":
+            return set(self.pack_variant_map.keys())
+        return set()
+
     # --- URLs ---
     # Canonical frontend origin (used for Stripe success/cancel redirects).
     frontend_url: str = "http://localhost:3000"
@@ -128,13 +181,16 @@ class Settings(BaseSettings):
             return bool(self.stripe_secret_key and self.stripe_subscription_price_id)
         if self.payment_provider == "lemonsqueezy":
             return bool(self.lemonsqueezy_api_key and self.plan_variant_map)
+        if self.payment_provider == "paddle":
+            return bool(self.paddle_api_key and self.paddle_plan_price_map)
         return False
 
     @property
     def credits_purchase_enabled(self) -> bool:
-        # Logged-in credit-pack top-up (Lemon Squeezy).
         if self.payment_provider == "lemonsqueezy":
             return bool(self.lemonsqueezy_api_key and self.pack_variant_map)
+        if self.payment_provider == "paddle":
+            return bool(self.paddle_api_key and self.paddle_pack_price_map)
         return False
 
     @property
@@ -179,6 +235,11 @@ class Settings(BaseSettings):
             if self.payment_provider == "lemonsqueezy" and self.lemonsqueezy_api_key and not self.lemonsqueezy_webhook_secret:
                 raise ValueError(
                     "LEMONSQUEEZY_WEBHOOK_SECRET is required when Lemon Squeezy is the active "
+                    "provider (unsigned webhooks are never trusted)."
+                )
+            if self.payment_provider == "paddle" and self.paddle_api_key and not self.paddle_webhook_secret:
+                raise ValueError(
+                    "PADDLE_WEBHOOK_SECRET is required when Paddle is the active "
                     "provider (unsigned webhooks are never trusted)."
                 )
         return self
