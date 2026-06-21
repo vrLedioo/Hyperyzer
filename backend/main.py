@@ -71,10 +71,42 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Hyperyzer API", lifespan=lifespan)
+# Auto-generated API docs (/docs, /redoc, /openapi.json) expose the full API
+# surface; serve them only outside production.
+_docs_on = not settings.is_production
+app = FastAPI(
+    title="Hyperyzer API",
+    lifespan=lifespan,
+    docs_url="/docs" if _docs_on else None,
+    redoc_url="/redoc" if _docs_on else None,
+    openapi_url="/openapi.json" if _docs_on else None,
+)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Security headers on every response. The API returns JSON (no HTML/scripts in
+# prod), so a deny-all CSP + frame-ancestors is safe and blocks clickjacking.
+_SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
+    "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+}
+
+
+@app.middleware("http")
+async def security_headers(request, call_next):
+    response = await call_next(request)
+    for key, value in _SECURITY_HEADERS.items():
+        response.headers.setdefault(key, value)
+    if settings.is_production:
+        response.headers.setdefault(
+            "Strict-Transport-Security", "max-age=63072000; includeSubDomains"
+        )
+    return response
+
 
 app.add_middleware(
     CORSMiddleware,

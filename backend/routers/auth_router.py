@@ -13,7 +13,7 @@ from config import settings
 from db import get_session
 from limiter import limiter
 from models import Analysis, EmailVerificationToken, PasswordResetToken, User, VideoJob
-from services.email import send_password_reset, send_verification_email
+from services.email import send_account_exists, send_password_reset, send_verification_email
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -97,24 +97,39 @@ def _issue_verification(session: Session, user: User) -> None:
 @router.post("/signup", response_model=MessageResponse)
 @limiter.limit("10/minute")
 def signup(request: Request, req: SignupRequest, session: Session = Depends(get_session)):
+    # Password-length validation is independent of the email, so it leaks
+    # nothing about account existence.
     if len(req.password) < 8:
         raise HTTPException(status_code=422, detail="Password must be at least 8 characters.")
-    existing = session.exec(select(User).where(User.email == req.email)).first()
-    if existing:
-        raise HTTPException(status_code=409, detail="An account with this email already exists.")
-    user = User(
-        email=req.email,
-        hashed_password=hash_password(req.password),
-        credits=settings.free_credits_on_signup,
-        email_verified=False,
-    )
-    session.add(user)
-    session.commit()
-    session.refresh(user)
 
-    _issue_verification(session, user)
+    # Enumeration-safe: every branch returns the SAME generic response. We never
+    # reveal via the HTTP response whether the email is already registered.
+    existing = session.exec(select(User).where(User.email == req.email)).first()
+    if existing is None:
+        user = User(
+            email=req.email,
+            hashed_password=hash_password(req.password),
+            credits=settings.free_credits_on_signup,
+            email_verified=False,
+        )
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+        _issue_verification(session, user)
+    elif not existing.email_verified:
+        # Account exists but never confirmed — resend the verification link.
+        _issue_verification(session, existing)
+    else:
+        # Verified account already exists — nudge the real owner by email
+        # instead of disclosing it in the response.
+        send_account_exists(
+            existing.email,
+            login_url=f"{settings.frontend_url}/login",
+            reset_url=f"{settings.frontend_url}/forgot-password",
+        )
+
     return MessageResponse(
-        message="Account created. Check your email for a verification link to activate your account."
+        message="If that email is new, check your inbox for a verification link to activate your account."
     )
 
 
