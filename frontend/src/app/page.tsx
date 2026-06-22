@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import {
   Play, Sparkles, Target, TrendingUp, Zap, Check, ArrowRight, Upload,
-  BrainCircuit, Clock, Hash, History, Star,
+  BrainCircuit, Clock, Hash, Star, PenLine, Megaphone, Wand2,
 } from 'lucide-react';
 
 export const metadata = {
@@ -23,6 +23,13 @@ const FEATURES = [
   { icon: Hash, title: 'Best hashtags', body: 'Get a tuned mix of primary, niche, and broad-reach hashtags for your exact video and platform.' },
   { icon: Clock, title: 'Best time to post', body: 'Ranked posting windows for your audience and platform — so you drop when your viewers are actually online.' },
   { icon: Play, title: 'Real video analysis', body: 'Upload a clip — we extract the audio, transcribe it, and score the hook you actually said.' },
+];
+
+const STUDIO_TOOLS = [
+  { icon: PenLine, title: 'AI Script Writer', body: 'Go from a one-line idea to a full, ready-to-film short-form script — hook, beats, CTA and caption.' },
+  { icon: Megaphone, title: 'Ad & product scripts', body: 'Turn any product into a native, direct-response UGC ad script built to convert.' },
+  { icon: Zap, title: 'Hook generator', body: '10–15 scroll-stopping hook variations for any topic, each with why it works.' },
+  { icon: Wand2, title: 'One-Click Optimize', body: 'Rewrite a weak script and instantly re-score it — watch the hook, retention and viral scores climb.' },
 ];
 
 const PRICING = [
@@ -47,6 +54,7 @@ const PRICING = [
 const FAQ = [
   { q: 'What do I actually get back?', a: 'A full report: hook, retention and viral scores (0–100), harsh actionable feedback, the best hashtags to use (primary, niche and broad), and the best times to post for your platform and audience.' },
   { q: 'Does it analyze real videos or just text?', a: 'Both. Test an idea by pasting a title + hook, or upload an actual clip — we transcribe the audio and analyze the real hook you delivered.' },
+  { q: 'Can it write scripts, not just score them?', a: 'Yes — on Pro and Agency. The Studio generates full short-form scripts from an idea, direct-response ad scripts, batches of hooks, and rewrites your script to maximize its scores. Agency adds a content calendar, client brand profiles, bulk analysis, and team seats. Output works in your language too.' },
   { q: 'How do credits work?', a: 'An idea report costs 1 credit and a video report costs 5 (it includes transcription). Free accounts get 10 starter credits; subscriptions refill a monthly bucket; or top up anytime with a credit pack.' },
   { q: 'Do I need an account?', a: 'You can use it free with no account by bringing your own OpenAI key. A free account gives you 10 starter credits and saved history — then subscribe or buy a credit pack whenever you want.' },
   { q: 'What platforms is it for?', a: 'Anything short-form-first: YouTube, TikTok, Instagram Reels, and Shorts. The hook, hashtag, and timing advice adapts to the platform you pick.' },
@@ -180,6 +188,35 @@ export default function Landing() {
               <p className="text-slate-600 font-medium text-sm leading-relaxed">{f.body}</p>
             </div>
           ))}
+        </div>
+      </section>
+
+      {/* Studio (creation tools) */}
+      <section className="max-w-5xl mx-auto px-5 sm:px-8 py-14">
+        <p className="text-center text-xs font-bold text-pink-500 uppercase tracking-widest mb-3">Pro &amp; Agency · The Studio</p>
+        <h2 className="text-center text-3xl sm:text-4xl font-extrabold tracking-tight mb-3">Don&apos;t just score it — create it</h2>
+        <p className="text-center text-slate-600 font-medium max-w-2xl mx-auto mb-12 leading-relaxed">
+          Hyperyzer isn&apos;t only a grader. The Studio is your AI scriptwriting team: go from a raw idea to a
+          ready-to-film script, a converting ad, or a month of content — then optimize it until the scores are green.
+        </p>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
+          {STUDIO_TOOLS.map((f) => (
+            <div key={f.title} className="bg-white/70 backdrop-blur-xl rounded-2xl border border-black/5 shadow-sm p-6">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-pink-500/10 to-orange-500/10 flex items-center justify-center mb-4">
+                <f.icon className="w-5 h-5 text-pink-500" />
+              </div>
+              <h3 className="font-bold text-slate-900 mb-1.5">{f.title}</h3>
+              <p className="text-slate-600 font-medium text-sm leading-relaxed">{f.body}</p>
+            </div>
+          ))}
+        </div>
+        <p className="text-center text-slate-500 font-medium text-sm mt-8">
+          Agency adds <span className="font-bold text-slate-700">client brand profiles</span>, <span className="font-bold text-slate-700">bulk analysis</span>, a <span className="font-bold text-slate-700">content calendar</span>, and <span className="font-bold text-slate-700">team seats</span> — plus output in <span className="font-bold text-slate-700">any language</span>.
+        </p>
+        <div className="text-center mt-7">
+          <Link href="/pricing" className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-base font-bold text-white bg-gradient-to-r from-pink-500 to-orange-500 shadow-[0_8px_24px_rgba(236,72,153,0.3)] hover:scale-[1.02] active:scale-[0.98] transition-all">
+            Unlock the Studio <ArrowRight className="w-4 h-4" />
+          </Link>
         </div>
       </section>
 

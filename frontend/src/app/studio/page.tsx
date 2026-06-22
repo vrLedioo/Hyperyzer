@@ -5,6 +5,7 @@ import Link from 'next/link';
 import {
   Play, Sparkles, PenLine, Megaphone, Zap, Wand2, CalendarDays, Layers,
   Users, Briefcase, Lock, AlertCircle, ArrowLeft, Printer, Loader2, Trash2, Plus,
+  Copy, Check,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { api } from '@/lib/api';
@@ -360,6 +361,45 @@ function Pill({ children }: { children: any }) {
   return <span className="text-xs font-bold text-pink-700 bg-pink-100/80 border border-pink-200 px-2 py-0.5 rounded-md">{children}</span>;
 }
 
+function resultToText(kind: string, d: any): string {
+  if (kind === 'hooks') return (d.hooks || []).map((h: any, i: number) => `${i + 1}. ${h.text}`).join('\n');
+  if (kind === 'optimize') return d.rewritten_script || '';
+  if (kind === 'calendar') {
+    return [d.summary, '', ...(d.posts || []).map((p: any) =>
+      `${p.day} — ${p.idea}${p.hook ? `\n  Hook: ${p.hook}` : ''}${p.best_time ? `\n  Best time: ${p.best_time}` : ''}`)]
+      .filter(Boolean).join('\n');
+  }
+  if (kind === 'bulk') {
+    return (d.items || []).filter((it: any) => it.ok)
+      .map((it: any) => `${it.title} — viral ${it.viral_score}, hook ${it.hook_score}, retention ${it.retention_score}`).join('\n');
+  }
+  // script / ad_script
+  const L: string[] = [];
+  if (d.title) L.push(d.title, '');
+  if (d.hook) L.push(`HOOK: ${d.hook}`, '');
+  (d.beats || []).forEach((b: any, i: number) => {
+    L.push(`${b.label || `Beat ${i + 1}`}: ${b.say}`);
+    if (b.visual) L.push(`  [visual: ${b.visual}]`);
+  });
+  if (d.cta) L.push('', `CTA: ${d.cta}`);
+  if (d.caption) L.push('', `Caption: ${d.caption}`);
+  if (d.hashtags?.length) L.push('', d.hashtags.join(' '));
+  return L.join('\n');
+}
+
+function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      onClick={async () => {
+        try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1600); } catch { /* clipboard blocked */ }
+      }}
+      className="flex items-center gap-1.5 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg cursor-pointer transition-colors no-print">
+      {copied ? <><Check className="w-3.5 h-3.5 text-emerald-500" /> Copied</> : <><Copy className="w-3.5 h-3.5" /> {label}</>}
+    </button>
+  );
+}
+
 function ResultView({ kind, data, canPrint }: { kind: string; data: any; canPrint: boolean }) {
   return (
     <div className="print-area mt-6 pt-6 border-t border-slate-200/60 animate-fade-in-up">
@@ -370,11 +410,14 @@ function ResultView({ kind, data, canPrint }: { kind: string; data: any; canPrin
       </div>
       <div className="flex items-center justify-between mb-4 no-print">
         <h3 className="text-lg font-extrabold flex items-center gap-2"><Sparkles className="w-5 h-5 text-pink-500" /> Result</h3>
-        {canPrint && (
-          <button onClick={() => window.print()} className="flex items-center gap-1.5 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg cursor-pointer">
-            <Printer className="w-3.5 h-3.5" /> Export PDF
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          <CopyButton text={resultToText(kind, data)} />
+          {canPrint && (
+            <button onClick={() => window.print()} className="flex items-center gap-1.5 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg cursor-pointer">
+              <Printer className="w-3.5 h-3.5" /> Export PDF
+            </button>
+          )}
+        </div>
       </div>
 
       {(kind === 'script' || kind === 'ad_script') && (
