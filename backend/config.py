@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     # BYOK always targets OpenAI's cloud with the user's own key.
     byok_model: str = "gpt-4o-mini"
 
+    # Studio generators use a stronger model than scoring — creative writing
+    # quality matters more for scripts than for a JSON score. Still cheap.
+    studio_model: str = "gpt-4.1-mini"
+
     # --- Transcription provider ---
     # "openai" = Whisper API (needs a key); "local" = faster-whisper (no key).
     transcription_provider: str = "openai"
@@ -49,6 +53,17 @@ class Settings(BaseSettings):
     # transcription on top of the full report (scores + hashtags + best time).
     idea_credit_cost: int = 1
     video_credit_cost: int = 5
+
+    # --- Studio (creation tools) credit costs ---
+    # Plan-gated to Pro/Agency (see plans.py), but still spend credits. Priced for
+    # perceived value, anchored to idea=1 / video=5. COGS is tiny (a script on
+    # studio_model costs ~$0.003), so these are about fairness/upsell, not cost.
+    script_credit_cost: int = 3       # idea/topic -> full short-form script
+    ad_script_credit_cost: int = 3    # product -> UGC ad script
+    hook_credit_cost: int = 2         # topic -> 10-15 hook variations
+    optimize_credit_cost: int = 4     # rewrite + RE-SCORE (2 model calls), charged once
+    calendar_credit_cost: int = 8     # niche -> week/month of ideas+hooks+slots (Agency)
+    bulk_per_item_cost: int = 1       # bulk analyze: charged per item (== idea cost)
 
     # --- Payments ---
     # Active provider: "none" | "paddle" | "lemonsqueezy" | "stripe".
@@ -85,6 +100,20 @@ class Settings(BaseSettings):
     # One variant id per one-time credit pack (see plans.PACKS).
     ls_variant_pack_small: str | None = None
     ls_variant_pack_large: str | None = None
+
+    @property
+    def studio_costs(self) -> dict[str, int]:
+        """Per-feature Studio credit costs, exposed to the frontend via /api/config
+        so the UI can show a cost before the call. Keys match plans.py feature keys
+        (plus 'bulk_per_item', which is the per-item charge for the bulk feature)."""
+        return {
+            "script": self.script_credit_cost,
+            "ad_script": self.ad_script_credit_cost,
+            "hooks": self.hook_credit_cost,
+            "optimize": self.optimize_credit_cost,
+            "calendar": self.calendar_credit_cost,
+            "bulk_per_item": self.bulk_per_item_cost,
+        }
 
     # --- Plan / pack <-> Paddle price maps ---
     @property

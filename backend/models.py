@@ -33,6 +33,14 @@ class User(SQLModel, table=True):
     # New signups must confirm ownership of their email before they can log in
     # or spend credits. Existing rows are grandfathered to True by the migration.
     email_verified: bool = False
+    # Team membership (Agency teams). `team_id` set => this user belongs to a team;
+    # `team_role` is "owner" or "member". A member spends the OWNER's credit pool
+    # and inherits the owner's (Agency) Studio capabilities. Null => solo user.
+    # NB: intentionally NOT a DB-level foreign key — team<->user would form a
+    # constraint cycle, and the prod migration adds this as a plain INTEGER
+    # column. The relationship is resolved in code (studio.team_owner/pool_user).
+    team_id: Optional[int] = Field(default=None, index=True)
+    team_role: Optional[str] = None  # "owner" | "member" | None
     created_at: datetime = Field(default_factory=_utcnow)
 
     @property
@@ -60,6 +68,61 @@ class Analysis(SQLModel, table=True):
     #                 "slots": [{"day","time","why"}]}
     hashtags: str = ""
     best_times: str = ""
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class Generation(SQLModel, table=True):
+    """A Studio creation (script, ad script, hooks, optimize, calendar). Kept
+    separate from Analysis (which is score-shaped) — generations are free-form
+    text with heterogeneous structure stored as JSON in `output`."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
+    # Set when produced by a team member (for attribution); owner's pool paid.
+    team_id: Optional[int] = Field(default=None, foreign_key="team.id", index=True)
+    # Agency: which brand/client profile this was generated for (optional).
+    client_id: Optional[int] = Field(default=None, foreign_key="client.id", index=True)
+    # "script" | "ad_script" | "hooks" | "optimize" | "calendar"
+    kind: str = ""
+    title: str = ""
+    input_text: str = ""        # the prompt/topic/source script
+    output: str = ""            # JSON-encoded result (see studio_router for shapes)
+    meta: str = ""              # JSON-encoded extras (e.g. optimize before/after)
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class Team(SQLModel, table=True):
+    """An Agency team. The owner's User row holds the shared credit pool and the
+    (Agency) subscription; members draw on it and inherit its capabilities."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    owner_id: int = Field(foreign_key="user.id", index=True)
+    name: str = ""
+    seat_limit: int = 5
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class TeamMembership(SQLModel, table=True):
+    """A seat on a team — an invited or active member. `user_id` is null until
+    the invite is accepted; `invite_token` is the single-use accept handle."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    team_id: int = Field(foreign_key="team.id", index=True)
+    user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
+    email: str = Field(index=True)        # invited address
+    role: str = "member"                  # "owner" | "member"
+    status: str = "invited"               # "invited" | "active" | "removed"
+    invite_token: str = Field(default_factory=_new_token, index=True, unique=True)
+    invited_at: datetime = Field(default_factory=_utcnow)
+    accepted_at: Optional[datetime] = None
+
+
+class Client(SQLModel, table=True):
+    """An Agency brand/client profile. Generation can target a profile so the
+    output matches that client's audience, niche, and tone of voice."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    team_id: int = Field(foreign_key="team.id", index=True)
+    name: str = ""
+    audience: str = ""
+    niche: str = ""
+    tone: str = ""
     created_at: datetime = Field(default_factory=_utcnow)
 
 

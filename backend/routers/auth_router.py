@@ -12,8 +12,13 @@ from auth import create_access_token, get_current_user, hash_password, verify_pa
 from config import settings
 from db import get_session
 from limiter import limiter
-from models import Analysis, EmailVerificationToken, PasswordResetToken, User, VideoJob
+from models import (
+    Analysis, Client, EmailVerificationToken, Generation, PasswordResetToken,
+    Team, TeamMembership, User, VideoJob,
+)
+from plans import plan_features
 from services.email import send_account_exists, send_password_reset, send_verification_email
+from studio import effective_plan, pool_user
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -58,13 +63,20 @@ class UserResponse(BaseModel):
     total_credits: int
     plan: str
     subscription_status: str
+    # Team-aware effective entitlement (what the caller can actually use right now).
+    effective_plan: str          # team owner's plan if an active team member, else own
+    studio_features: list[str]   # Studio capability keys available to this caller
+    pool_credits: int            # spendable credits backing this caller (team pool if a member)
+    team_id: Optional[int] = None
+    team_role: Optional[str] = None
 
 
 class MessageResponse(BaseModel):
     message: str
 
 
-def _user_out(user: User) -> UserResponse:
+def _user_out(user: User, session: Session) -> UserResponse:
+    eff_plan = effective_plan(user, session)
     return UserResponse(
         id=user.id,
         email=user.email,
@@ -73,6 +85,11 @@ def _user_out(user: User) -> UserResponse:
         total_credits=user.total_credits,
         plan=user.plan,
         subscription_status=user.subscription_status,
+        effective_plan=eff_plan,
+        studio_features=sorted(plan_features(eff_plan)),
+        pool_credits=pool_user(user, session).total_credits,
+        team_id=user.team_id,
+        team_role=user.team_role,
     )
 
 
@@ -200,8 +217,8 @@ def resend_verification(
 
 
 @router.get("/me", response_model=UserResponse)
-def me(user: User = Depends(get_current_user)):
-    return _user_out(user)
+def me(user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    return _user_out(user, session)
 
 
 @router.post("/forgot-password", response_model=MessageResponse)
@@ -274,17 +291,53 @@ def delete_account(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
-    """Permanently delete the account and all associated data (GDPR Art. 17)."""
+    """Permanently delete the account and all associated data (GDPR Art. 17).
+
+    Team teardown: if the user OWNS a team, the team is dissolved — members are
+    detached (revert to their own plan), the team's client profiles and seats are
+    removed, and any generations still pointing at the team are unlinked so no
+    foreign key is left dangling. If the user is just a member, their seat is
+    removed and the team continues.
+    """
     for j in session.exec(select(VideoJob).where(VideoJob.user_id == user.id)).all():
         session.delete(j)
     session.flush()
     for a in session.exec(select(Analysis).where(Analysis.user_id == user.id)).all():
         session.delete(a)
+    for g in session.exec(select(Generation).where(Generation.user_id == user.id)).all():
+        session.delete(g)
     for t in session.exec(select(PasswordResetToken).where(PasswordResetToken.user_id == user.id)).all():
         session.delete(t)
     for t in session.exec(select(EmailVerificationToken).where(EmailVerificationToken.user_id == user.id)).all():
         session.delete(t)
     session.flush()
+
+    # --- Team teardown ---
+    if user.team_id and user.team_role == "owner":
+        team = session.get(Team, user.team_id)
+        if team:
+            # Unlink any surviving generations (other members') from this team.
+            for g in session.exec(select(Generation).where(Generation.team_id == team.id)).all():
+                g.team_id = None
+                g.client_id = None
+                session.add(g)
+            for m in session.exec(select(TeamMembership).where(TeamMembership.team_id == team.id)).all():
+                if m.user_id and m.user_id != user.id:
+                    member = session.get(User, m.user_id)
+                    if member and member.team_id == team.id:
+                        member.team_id = None
+                        member.team_role = None
+                        session.add(member)
+                session.delete(m)
+            for cl in session.exec(select(Client).where(Client.team_id == team.id)).all():
+                session.delete(cl)
+            session.flush()
+            session.delete(team)
+    elif user.team_id and user.team_role == "member":
+        for m in session.exec(select(TeamMembership).where(TeamMembership.user_id == user.id)).all():
+            session.delete(m)
+    session.flush()
+
     session.delete(user)
     session.commit()
     return Response(status_code=204)
@@ -301,6 +354,9 @@ def export_data(
     ).all()
     jobs = session.exec(
         select(VideoJob).where(VideoJob.user_id == user.id).order_by(VideoJob.created_at)
+    ).all()
+    generations = session.exec(
+        select(Generation).where(Generation.user_id == user.id).order_by(Generation.created_at)
     ).all()
 
     def _loads(raw: str) -> dict:
@@ -347,6 +403,21 @@ def export_data(
             }
             for j in jobs
         ],
+        "generations": [
+            {
+                "id": g.id,
+                "kind": g.kind,
+                "title": g.title,
+                "input_text": g.input_text,
+                "output": _loads(g.output),
+                "created_at": g.created_at.isoformat(),
+            }
+            for g in generations
+        ],
+        "team": {
+            "team_id": user.team_id,
+            "role": user.team_role,
+        },
     }
 
     content = json.dumps(data, indent=2, ensure_ascii=False)

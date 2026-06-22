@@ -12,12 +12,12 @@ The scores + feedback are the core deliverable and MUST parse or the call fails.
 The hashtags + timing are high-value extras: if a (small/local) model omits or
 mangles them, we degrade gracefully to empty structures instead of failing.
 """
-import json
 import re
 from dataclasses import dataclass, field
 from typing import Optional
 
 from llm import build_chat_client, is_ollama, ollama_chat_json
+from services._jsonparse import parse_json_response
 
 SYSTEM_PROMPT = """
 You are an elite short-form video strategist and growth consultant for YouTube,
@@ -53,60 +53,6 @@ Rules:
   audience's likely active hours/timezone.
 - Respond with ONLY the JSON object. No prose, no markdown fences, no <think>.
 """
-
-# Strip a full <think>...</think> block, or a dangling closing half. We do NOT
-# strip from a lone opening <think> to end-of-string — that would delete the JSON
-# answer that thinking models emit after their (sometimes unclosed) reasoning.
-_THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
-_THINK_CLOSE_RE = re.compile(r"^.*?</think>", re.DOTALL | re.IGNORECASE)
-_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL | re.IGNORECASE)
-
-
-def _iter_json_objects(text: str):
-    """Yield every parseable, balanced top-level {...} object in `text`
-    (brace-aware and string-aware, so decoy braces in prose don't break it)."""
-    i, n = 0, len(text)
-    while i < n:
-        if text[i] == "{":
-            depth = 0
-            in_str = False
-            esc = False
-            for j in range(i, n):
-                c = text[j]
-                if in_str:
-                    if esc:
-                        esc = False
-                    elif c == "\\":
-                        esc = True
-                    elif c == '"':
-                        in_str = False
-                elif c == '"':
-                    in_str = True
-                elif c == "{":
-                    depth += 1
-                elif c == "}":
-                    depth -= 1
-                    if depth == 0:
-                        try:
-                            yield json.loads(text[i:j + 1])
-                        except json.JSONDecodeError:
-                            pass
-                        i = j  # resume scanning after this object
-                        break
-        i += 1
-
-
-def _best_json_object(text: str):
-    """Pick the object that looks like our payload (prefer one containing
-    'hook_score'); fall back to the last parseable object, else None."""
-    objs = [o for o in _iter_json_objects(text) if isinstance(o, dict)]
-    if not objs:
-        return None
-    for o in reversed(objs):
-        if "hook_score" in o:
-            return o
-    return objs[-1]
-
 
 @dataclass
 class ScoreResult:
@@ -185,24 +131,10 @@ def _clean_best_times(v) -> dict:
 
 
 def _parse(content: str) -> dict:
-    if not content:
-        raise ScoringError("Model returned an empty response.")
-    # Remove a full <think> block, then any leading reasoning up to a stray
-    # </think>, then unwrap a ```json code fence if present.
-    cleaned = _THINK_BLOCK_RE.sub("", content)
-    cleaned = _THINK_CLOSE_RE.sub("", cleaned)
-    fence = _FENCE_RE.search(cleaned)
-    if fence:
-        cleaned = fence.group(1)
-    cleaned = cleaned.strip()
-
     try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
-        obj = _best_json_object(cleaned)  # tolerate surrounding prose / extra braces
-        if obj is not None:
-            return obj
-    raise ScoringError("Could not parse a valid JSON response from the model.")
+        return parse_json_response(content, prefer_key="hook_score")
+    except ValueError as e:
+        raise ScoringError(str(e)) from e
 
 
 def score_content(

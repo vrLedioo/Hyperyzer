@@ -28,20 +28,29 @@ def server_llm_configured() -> bool:
     return bool(settings.llm_api_key or settings.openai_api_key)
 
 
-def build_chat_client(byok_key: Optional[str] = None) -> ChatClient:
+def build_chat_client(byok_key: Optional[str] = None, model: Optional[str] = None) -> ChatClient:
     """Build the chat client. BYOK uses OpenAI cloud with the user's key;
-    otherwise the server's configured provider (possibly keyless/local)."""
+    otherwise the server's configured provider (possibly keyless/local).
+
+    `model` overrides the default model for this call (e.g. Studio generators
+    pass settings.studio_model). For a custom/local endpoint the override is
+    ignored unless that endpoint actually serves the named model — callers pass
+    overrides only for the OpenAI-cloud path in practice.
+    """
     if byok_key:
-        return ChatClient(client=OpenAI(api_key=byok_key), model=settings.byok_model, is_local=False)
+        return ChatClient(client=OpenAI(api_key=byok_key), model=model or settings.byok_model, is_local=False)
 
     key = settings.llm_api_key or settings.openai_api_key or "not-needed"
     if settings.llm_base_url:
+        # Local/custom endpoints serve their own configured model; honor an
+        # override only if given (a self-hoster pointing studio_model at a model
+        # their endpoint lacks is their config choice).
         return ChatClient(
             client=OpenAI(api_key=key, base_url=settings.llm_base_url),
-            model=settings.llm_model,
+            model=model or settings.llm_model,
             is_local=True,
         )
-    return ChatClient(client=OpenAI(api_key=key), model=settings.llm_model, is_local=False)
+    return ChatClient(client=OpenAI(api_key=key), model=model or settings.llm_model, is_local=False)
 
 
 def is_ollama() -> bool:

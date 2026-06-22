@@ -16,12 +16,24 @@ const PLANS = [
     points: ['150 credits / month', 'Idea = 1 credit · video = 5', 'Saved history & comparisons'],
   },
   {
-    name: 'Pro', price: '€29', per: '/mo', highlight: true,
-    points: ['500 credits / month', 'Priority processing', 'Everything in Creator'],
+    name: 'Pro', price: '€39', per: '/mo', highlight: true,
+    points: [
+      '800 credits / month',
+      '✨ Studio: AI Script Writer',
+      '✨ Ad / product script writer',
+      '✨ Hook generator + One-Click Optimize',
+      'Priority processing · everything in Creator',
+    ],
   },
   {
-    name: 'Agency', price: '€79', per: '/mo', highlight: false,
-    points: ['2,000 credits / month', 'For teams & multiple accounts', 'Highest priority'],
+    name: 'Agency', price: '€99', per: '/mo', highlight: false,
+    points: [
+      '3,000 credits / month',
+      'Everything in Pro, plus:',
+      'Client / brand profiles + bulk analyze',
+      'Content calendar + white-label export',
+      'Team seats — share one credit pool',
+    ],
   },
 ];
 
@@ -45,6 +57,11 @@ export default function Pricing() {
         Every analysis returns a full report — hook / retention / viral scores, the best hashtags, and
         the best time to post. An idea report costs <strong>1 credit</strong>; a video report costs
         <strong> 5</strong> (it includes transcription). Start free, upgrade only when it&apos;s paying off.
+      </p>
+      <p className="mt-3 text-slate-600 font-medium max-w-2xl">
+        <strong>Pro & Agency unlock the Studio</strong> — don&apos;t just score your ideas, generate them: full
+        scripts from a topic, direct-response ad scripts, scroll-stopping hooks, and one-click rewrites that
+        boost your scores. Agency adds client profiles, bulk analysis, a content calendar and team seats.
       </p>
 
       {/* Plans */}

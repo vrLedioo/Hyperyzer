@@ -28,6 +28,11 @@ _ADDED_COLUMNS: dict[str, dict[str, str]] = {
         # out; new signups insert email_verified=False explicitly. TRUE/FALSE
         # literals are valid on both SQLite (>=3.23) and Postgres.
         "email_verified": "BOOLEAN NOT NULL DEFAULT TRUE",
+        # Agency team membership. Nullable — no DEFAULT clause needed (solo users
+        # have NULL). New tables (team, client, etc.) are auto-created by
+        # create_all and must NOT be listed here (this dict is for ALTERs only).
+        "team_id": "INTEGER",
+        "team_role": "VARCHAR",
     },
     "analysis": {
         "platform": "VARCHAR NOT NULL DEFAULT ''",

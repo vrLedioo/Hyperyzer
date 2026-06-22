@@ -14,6 +14,8 @@ from plans import PACKS, PLANS
 from routers.auth_router import router as auth_router
 from routers.analyze_router import router as analyze_router
 from routers.billing_router import router as billing_router
+from routers.studio_router import router as studio_router
+from routers.team_router import router as team_router
 from routers.video_router import router as video_router
 
 
@@ -119,6 +121,8 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(analyze_router)
 app.include_router(billing_router)
+app.include_router(studio_router)
+app.include_router(team_router)
 app.include_router(video_router)
 
 
@@ -148,6 +152,8 @@ class PlanOut(BaseModel):
     monthly_credits: int
     priority: bool
     team: bool
+    studio: bool             # unlocks the Studio creation tools
+    features: list[str]      # Studio capability keys this plan unlocks
     tagline: str
     available: bool  # the active payment provider has a price configured for this plan
 
@@ -173,6 +179,7 @@ class ConfigResponse(BaseModel):
     free_credits_on_signup: int
     idea_credit_cost: int
     video_credit_cost: int
+    studio_costs: dict[str, int]   # per-feature Studio credit costs
     plans: list[PlanOut]
     packs: list[PackOut]
 
@@ -189,7 +196,13 @@ def get_config():
     available_plans = settings.available_plan_keys
     available_packs = settings.available_pack_keys
     plans = [
-        PlanOut(key=k, available=k in available_plans, **p) for k, p in PLANS.items()
+        PlanOut(
+            key=k, available=k in available_plans,
+            name=p["name"], price_eur=p["price_eur"], monthly_credits=p["monthly_credits"],
+            priority=p["priority"], team=p["team"], studio=p["studio"],
+            features=sorted(p["features"]), tagline=p["tagline"],
+        )
+        for k, p in PLANS.items()
     ]
     packs = [
         PackOut(key=k, available=k in available_packs, **p) for k, p in PACKS.items()
@@ -208,6 +221,7 @@ def get_config():
         free_credits_on_signup=settings.free_credits_on_signup,
         idea_credit_cost=settings.idea_credit_cost,
         video_credit_cost=settings.video_credit_cost,
+        studio_costs=settings.studio_costs,
         plans=plans,
         packs=packs,
     )

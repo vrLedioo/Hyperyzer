@@ -35,12 +35,12 @@ const PRICING = [
     points: ['150 credits / month', 'Idea = 1 credit · video = 5', 'Saved history & comparisons'],
   },
   {
-    name: 'Pro', price: '€29', per: '/mo', cta: 'Go Pro', highlight: true,
-    points: ['500 credits / month', 'Priority processing', 'Everything in Creator'],
+    name: 'Pro', price: '€39', per: '/mo', cta: 'Go Pro', highlight: true,
+    points: ['800 credits / month', '✨ Studio: scripts, ad scripts & hooks', 'One-Click Optimize · priority processing'],
   },
   {
-    name: 'Agency', price: '€79', per: '/mo', cta: 'Choose Agency', highlight: false,
-    points: ['2,000 credits / month', 'For teams & multiple accounts', 'Highest priority'],
+    name: 'Agency', price: '€99', per: '/mo', cta: 'Choose Agency', highlight: false,
+    points: ['3,000 credits / month', 'Client profiles, bulk & content calendar', 'Team seats — share one credit pool'],
   },
 ];
 

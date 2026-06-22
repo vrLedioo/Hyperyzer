@@ -19,6 +19,7 @@ from sqlmodel import Session
 from auth import PURPOSE_PAY, decode_token
 from llm import server_llm_configured
 from models import RedeemedSession, User
+from studio import pool_user
 
 
 class AccessDenied(Exception):
@@ -74,18 +75,21 @@ def resolve_access(
         )
 
     # 2. Account credits — subscription allowance + purchased packs combined.
-    if user and user.total_credits >= cost:
-        return AccessGrant(method="credit", user=user, credits_cost=cost)
+    # For a team member, the OWNER's buckets are the shared pool; pool_user
+    # resolves to the owner so grant.user (and thus the debit) targets the pool.
+    payer = pool_user(user, session) if user else None
+    if payer and payer.total_credits >= cost:
+        return AccessGrant(method="credit", user=payer, credits_cost=cost)
 
     # 3. Single-use pay token.
     session_id = _valid_pay_session(pay_token, session)
     if session_id:
         return AccessGrant(method="pay-token", session_id=session_id, credits_cost=cost)
 
-    # Helpful message when the user has some credits but not enough for this type.
-    if user and 0 < user.total_credits < cost:
+    # Helpful message when the (pool) account has some credits but not enough.
+    if payer and 0 < payer.total_credits < cost:
         raise AccessDenied(
-            f"This analysis needs {cost} credits, but you have {user.total_credits}. "
+            f"This analysis needs {cost} credits, but you have {payer.total_credits}. "
             "Buy a credit pack, upgrade your plan, or use your own OpenAI key.",
             status_code=402,
         )
@@ -104,6 +108,13 @@ def apply_consumption(grant: AccessGrant, session: Session) -> None:
     user's use-it-or-lose-it allowance is consumed first.
     """
     if grant.method == "credit" and grant.user is not None:
+        # Lock + reload the (pool) row so concurrent spends on a shared team pool
+        # serialize instead of racing into a lost update. FOR UPDATE is a no-op
+        # on SQLite (local dev); it matters on Postgres (prod).
+        try:
+            session.refresh(grant.user, with_for_update=True)
+        except Exception:  # noqa: BLE001 — detached/unsupported: proceed unlocked
+            pass
         remaining = grant.credits_cost
         from_sub = min(grant.user.subscription_credits, remaining)
         grant.user.subscription_credits -= from_sub

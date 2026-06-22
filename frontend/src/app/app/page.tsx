@@ -377,6 +377,14 @@ export default function Home() {
             <Video className={`w-5 h-5 ${mode === 'video' ? 'text-pink-500' : ''}`} />
             <span>Video Upload</span>
           </button>
+          <Link
+            href="/studio"
+            className="flex items-center gap-3 px-5 py-3 rounded-xl font-bold w-full transition-all cursor-pointer text-slate-500 hover:text-slate-900 hover:bg-white/50"
+          >
+            <Sparkles className="w-5 h-5 text-pink-500" />
+            <span>Studio</span>
+            <span className="ml-auto text-[10px] font-black uppercase tracking-wider text-pink-500 bg-pink-100 px-1.5 py-0.5 rounded">Pro</span>
+          </Link>
         </nav>
 
         <div className="mt-8 px-6 flex-1 overflow-hidden flex flex-col">

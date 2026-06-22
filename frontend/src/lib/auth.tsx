@@ -11,6 +11,12 @@ export interface User {
   total_credits: number;        // spendable now
   plan: string;                 // "free" | "creator" | "pro" | "agency"
   subscription_status: string;
+  // Team-aware effective entitlement (from /api/auth/me).
+  effective_plan?: string;      // plan whose capabilities apply right now
+  studio_features?: string[];   // Studio capability keys the user can use
+  pool_credits?: number;        // spendable credits backing the user (team pool if a member)
+  team_id?: number | null;
+  team_role?: string | null;    // "owner" | "member" | null
 }
 
 interface AuthContextValue {

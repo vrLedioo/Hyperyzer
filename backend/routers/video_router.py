@@ -58,11 +58,18 @@ class JobStatusResponse(BaseModel):
     created_at: datetime
 
 
-def _apply_consumption_bg(session: Session, method: str, user_id: Optional[int],
+def _apply_consumption_bg(session: Session, method: str, payer_user_id: Optional[int],
                          session_id: Optional[str], cost: int):
-    if method == "credit" and user_id is not None:
-        user = session.get(User, user_id)
+    """Spend credits from the PAYER row (the team owner's pool for a member;
+    the user themselves otherwise). payer_user_id is resolved at enqueue time."""
+    if method == "credit" and payer_user_id is not None:
+        user = session.get(User, payer_user_id)
         if user:
+            # Lock + reload so concurrent spends on a shared team pool serialize.
+            try:
+                session.refresh(user, with_for_update=True)
+            except Exception:  # noqa: BLE001 — no-op on SQLite / detached
+                pass
             # Spend the monthly subscription allowance first, then pack credits.
             from_sub = min(user.subscription_credits, cost)
             user.subscription_credits -= from_sub
@@ -75,7 +82,8 @@ def _apply_consumption_bg(session: Session, method: str, user_id: Optional[int],
 
 
 def _process_video(job_id: int, file_path: str, title: str, byok_key: Optional[str],
-                   method: str, user_id: Optional[int], session_id: Optional[str], cost: int,
+                   method: str, attribution_user_id: Optional[int], payer_user_id: Optional[int],
+                   session_id: Optional[str], cost: int,
                    platform: str = "", audience: str = ""):
     """Runs in the background. Owns its own DB session."""
     with Session(engine) as session:
@@ -98,7 +106,7 @@ def _process_video(job_id: int, file_path: str, title: str, byok_key: Optional[s
             )
 
             analysis = Analysis(
-                user_id=user_id, kind="video", title=title, input_text=transcript,
+                user_id=attribution_user_id, kind="video", title=title, input_text=transcript,
                 platform=platform or "",
                 hook_score=result.hook_score, retention_score=result.retention_score,
                 viral_score=result.viral_score, feedback=result.feedback,
@@ -109,7 +117,7 @@ def _process_video(job_id: int, file_path: str, title: str, byok_key: Optional[s
             session.commit()
             session.refresh(analysis)
 
-            _apply_consumption_bg(session, method, user_id, session_id, cost)
+            _apply_consumption_bg(session, method, payer_user_id, session_id, cost)
 
             job.status = "done"
             job.analysis_id = analysis.id
@@ -218,9 +226,14 @@ async def analyze_video(
     session.commit()
     session.refresh(job)
 
+    # Attribution = the member who ran it; payer = the pool owner whose credits
+    # are spent (grant.user is the pool_user resolved by resolve_access). They
+    # differ only for team members; identical for solo users.
+    attribution_user_id = user.id if user else None
+    payer_user_id = grant.user.id if (grant.method == "credit" and grant.user) else None
     background.add_task(
         _process_video, job.id, file_path, title, grant.byok_key,
-        grant.method, user.id if user else None, grant.session_id, grant.credits_cost,
+        grant.method, attribution_user_id, payer_user_id, grant.session_id, grant.credits_cost,
         platform or "", audience or "",
     )
     return JobResponse(job_id=job.token, status=job.status)

@@ -25,7 +25,10 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await login(email, password);
-      router.push('/app');
+      // Honor a ?next= redirect (e.g. accepting a team invite), but only for
+      // same-site relative paths to avoid an open redirect.
+      const next = new URLSearchParams(window.location.search).get('next');
+      router.push(next && next.startsWith('/') ? next : '/app');
     } catch (err: any) {
       setError(err.message || 'Login failed.');
       if (err?.status === 403) setNeedsVerify(true);

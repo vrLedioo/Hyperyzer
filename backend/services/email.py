@@ -105,6 +105,45 @@ def send_verification_email(to_email: str, verify_url: str) -> None:
     _send(to=to_email, subject="Confirm your Hyperyzer email", html=html)
 
 
+def send_team_invite(to_email: str, accept_url: str, team_name: str, inviter_email: str) -> None:
+    """Invite someone to join an Agency team. They join the team's shared credit
+    pool and unlock the Studio. Link is single-use."""
+    team_label = (team_name or "a Hyperyzer team").strip()
+    html = f"""
+<!DOCTYPE html>
+<html>
+<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#FDF2F8;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 16px;">
+    <tr><td align="center">
+      <table width="480" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:20px;border:1px solid #fce7f3;padding:40px 36px;">
+        <tr><td>
+          <p style="margin:0 0 4px;font-size:22px;font-weight:900;color:#0f172a;letter-spacing:-0.5px;">Hyperyzer</p>
+          <p style="margin:0 0 28px;font-size:13px;color:#ec4899;font-weight:700;">AI Video Scoring</p>
+          <h1 style="margin:0 0 12px;font-size:24px;font-weight:900;color:#0f172a;">You&rsquo;re invited to {team_label}</h1>
+          <p style="margin:0 0 28px;color:#475569;font-size:15px;line-height:1.6;">
+            <strong>{inviter_email}</strong> invited you to join their team on Hyperyzer. Accept to share the
+            team&rsquo;s credits and unlock the full Studio — script writer, ad scripts, hooks and more.
+          </p>
+          <a href="{accept_url}"
+             style="display:inline-block;padding:14px 32px;background:linear-gradient(135deg,#ec4899,#f97316);
+                    color:#fff;font-weight:800;font-size:15px;text-decoration:none;border-radius:14px;
+                    letter-spacing:-0.2px;">
+            Join the team &rarr;
+          </a>
+          <p style="margin:28px 0 0;color:#94a3b8;font-size:13px;line-height:1.6;">
+            If you don&rsquo;t have a Hyperyzer account yet, sign up with this email address first, then open this link.<br>
+            Or paste it directly: <a href="{accept_url}" style="color:#ec4899;word-break:break-all;">{accept_url}</a>
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>
+"""
+    _send(to=to_email, subject=f"You're invited to {team_label} on Hyperyzer", html=html)
+
+
 def send_account_exists(to_email: str, login_url: str, reset_url: str) -> None:
     """Sent when someone tries to sign up with an email that already has a
     verified account — keeps the signup HTTP response generic (no enumeration)
