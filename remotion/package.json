@@ -1,0 +1,36 @@
+{
+  "name": "hyperyzer-remotion",
+  "version": "1.0.0",
+  "description": "Hyperyzer social ad videos (Remotion)",
+  "private": true,
+  "scripts": {
+    "dev": "remotion studio",
+    "studio": "remotion studio",
+    "audio": "node scripts/render-audio.mjs",
+    "render": "remotion render HyperyzerAd-9x16 out/hyperyzer-9x16.mp4",
+    "render:9x16": "remotion render HyperyzerAd-9x16 out/hyperyzer-9x16.mp4",
+    "render:1x1": "remotion render HyperyzerAd-1x1 out/hyperyzer-1x1.mp4",
+    "render:16x9": "remotion render HyperyzerAd-16x9 out/hyperyzer-16x9.mp4",
+    "render:all": "npm run render:9x16 && npm run render:1x1 && npm run render:16x9",
+    "render:v2": "remotion render HyperyzerAdV2-9x16 out/hyperyzer-v2-9x16.mp4",
+    "render:v2:1x1": "remotion render HyperyzerAdV2-1x1 out/hyperyzer-v2-1x1.mp4",
+    "render:v2:16x9": "remotion render HyperyzerAdV2-16x9 out/hyperyzer-v2-16x9.mp4",
+    "render:v2:all": "npm run render:v2 && npm run render:v2:1x1 && npm run render:v2:16x9",
+    "upgrade": "remotion upgrade",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.482",
+    "@remotion/google-fonts": "4.0.482",
+    "@remotion/transitions": "4.0.482",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "remotion": "4.0.482"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "node-web-audio-api": "^2.0.0",
+    "typescript": "^5.9.0"
+  }
+}
