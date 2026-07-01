@@ -9,7 +9,7 @@ export const metadata = {
 const PLANS = [
   {
     name: 'Free', price: '€0', per: 'to get started', highlight: false,
-    points: ['10 starter credits', 'Or bring your own OpenAI key — unlimited', 'Full report: scores, hashtags & timing'],
+    points: ['10 starter credits', 'Or bring your own OpenAI key — unlimited', 'Full report: scores, fixes, hashtags & timing'],
   },
   {
     name: 'Creator', price: '€14', per: '/mo', highlight: false,

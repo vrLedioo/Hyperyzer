@@ -55,6 +55,7 @@ class JobStatusResponse(BaseModel):
     feedback: Optional[str] = None
     hashtags: dict = {}
     best_times: dict = {}
+    improvements: dict = {}
     created_at: datetime
 
 
@@ -113,6 +114,7 @@ def _process_video(job_id: int, file_path: str, title: str, byok_key: Optional[s
                 viral_score=result.viral_score, feedback=result.feedback,
                 hashtags=json.dumps(result.hashtags or {}),
                 best_times=json.dumps(result.best_times or {}),
+                improvements=json.dumps(result.improvements or {}),
             )
             session.add(analysis)
             session.commit()
@@ -269,6 +271,7 @@ def job_status(
             resp.feedback = analysis.feedback
             resp.hashtags = _loads(analysis.hashtags)
             resp.best_times = _loads(analysis.best_times)
+            resp.improvements = _loads(analysis.improvements)
     return resp
 
 

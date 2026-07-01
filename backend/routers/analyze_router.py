@@ -35,6 +35,7 @@ class AnalyzeResponse(BaseModel):
     feedback: str
     hashtags: dict = {}
     best_times: dict = {}
+    improvements: dict = {}
     pay_token_consumed: bool = False
 
 
@@ -50,6 +51,7 @@ class AnalysisOut(BaseModel):
     feedback: str
     hashtags: dict = {}
     best_times: dict = {}
+    improvements: dict = {}
     created_at: datetime
 
 
@@ -86,6 +88,7 @@ def save_analysis(
         feedback=result.feedback,
         hashtags=json.dumps(getattr(result, "hashtags", {}) or {}),
         best_times=json.dumps(getattr(result, "best_times", {}) or {}),
+        improvements=json.dumps(getattr(result, "improvements", {}) or {}),
     )
     session.add(record)
     session.commit()
@@ -140,6 +143,7 @@ def analyze_idea(
         feedback=result.feedback,
         hashtags=result.hashtags,
         best_times=result.best_times,
+        improvements=result.improvements,
         pay_token_consumed=(grant.method == "pay-token"),
     )
 
@@ -165,6 +169,7 @@ def history(
             hook_score=r.hook_score, retention_score=r.retention_score,
             viral_score=r.viral_score, feedback=r.feedback,
             hashtags=_loads(r.hashtags), best_times=_loads(r.best_times),
+            improvements=_loads(r.improvements),
             created_at=r.created_at,
         )
         for r in rows

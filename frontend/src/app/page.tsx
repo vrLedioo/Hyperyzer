@@ -1,28 +1,30 @@
 import Link from 'next/link';
 import {
   Play, Sparkles, Target, TrendingUp, Zap, Check, ArrowRight, Upload,
-  BrainCircuit, Clock, Hash, Star, PenLine, Megaphone, Wand2,
+  BrainCircuit, Clock, Hash, Star, PenLine, Megaphone, Wand2, ArrowLeftRight,
 } from 'lucide-react';
 
 export const metadata = {
-  title: 'Hyperyzer — Score your video, get the best hashtags & best time to post',
+  title: 'Hyperyzer — Score your video, get it fixed, and post it at the right time',
   description:
-    "AI scores your video's hook, retention, and viral potential, then hands you the best hashtags and the best time to post — in seconds. Free to start.",
+    "AI scores your video's hook, retention, and viral potential — then rewrites your hook, suggests better titles, a ready caption, the best hashtags, and the best time to post. Free to start.",
 };
 
 const STEPS = [
   { icon: Upload, title: 'Paste or upload', body: 'Drop in your title + hook, or upload the actual clip — we transcribe it automatically.' },
-  { icon: BrainCircuit, title: 'AI builds your report', body: 'Hook, retention & viral scores (0–100), the exact fixes, the best hashtags, and your best time to post.' },
-  { icon: TrendingUp, title: 'Post & grow', body: 'Apply the feedback, copy the hashtags, post at the right time, and publish the version that actually performs.' },
+  { icon: BrainCircuit, title: 'AI builds your report', body: 'An overall grade, hook/retention/viral scores, 3 stronger hook rewrites, better titles, a ready caption, hashtags, and your best time to post.' },
+  { icon: TrendingUp, title: 'Post & grow', body: 'Copy the rewritten hook and caption, post at the right time, and publish the version that actually performs.' },
 ];
 
 const FEATURES = [
   { icon: Target, title: 'Hook strength', body: 'Find out if your first 5 seconds create a real curiosity gap — the make-or-break moment.' },
-  { icon: TrendingUp, title: 'Retention prediction', body: 'See where pacing will lose viewers before the algorithm ever does.' },
-  { icon: Zap, title: 'Viral potential', body: 'Gauge how broad and shareable your premise really is.' },
+  { icon: Wand2, title: 'Fixes, not just scores', body: 'Every report rewrites your hook 3 ways, suggests better titles, and hands you a ready-to-post caption.' },
+  { icon: TrendingUp, title: 'Retention risks', body: 'See exactly where — and why — viewers will drop, with a specific fix for each weak moment.' },
+  { icon: Zap, title: 'Viral potential', body: 'Gauge how broad and shareable your premise really is, graded A+ to F.' },
   { icon: Hash, title: 'Best hashtags', body: 'Get a tuned mix of primary, niche, and broad-reach hashtags for your exact video and platform.' },
   { icon: Clock, title: 'Best time to post', body: 'Ranked posting windows for your audience and platform — so you drop when your viewers are actually online.' },
   { icon: Play, title: 'Real video analysis', body: 'Upload a clip — we extract the audio, transcribe it, and score the hook you actually said.' },
+  { icon: ArrowLeftRight, title: 'Compare & track', body: 'Score two hooks head-to-head before you film, and watch your score trend climb over time.' },
 ];
 
 const STUDIO_TOOLS = [
@@ -35,7 +37,7 @@ const STUDIO_TOOLS = [
 const PRICING = [
   {
     name: 'Free', price: '€0', per: 'to get started', cta: 'Start free', highlight: false,
-    points: ['10 starter credits', 'Or bring your own OpenAI key — unlimited', 'Full report: scores, hashtags & timing'],
+    points: ['10 starter credits', 'Or bring your own OpenAI key — unlimited', 'Full report: scores, fixes, hashtags & timing'],
   },
   {
     name: 'Creator', price: '€14', per: '/mo', cta: 'Choose Creator', highlight: false,
@@ -52,7 +54,7 @@ const PRICING = [
 ];
 
 const FAQ = [
-  { q: 'What do I actually get back?', a: 'A full report: hook, retention and viral scores (0–100), harsh actionable feedback, the best hashtags to use (primary, niche and broad), and the best times to post for your platform and audience.' },
+  { q: 'What do I actually get back?', a: 'A full report: an overall grade, hook/retention/viral scores (0–100), harsh actionable feedback, 3 stronger rewrites of your hook, better title suggestions, a ready-to-post caption, the exact moments where viewers may drop (with fixes), the best hashtags (primary, niche and broad), and the best times to post for your platform and audience.' },
   { q: 'Does it analyze real videos or just text?', a: 'Both. Test an idea by pasting a title + hook, or upload an actual clip — we transcribe the audio and analyze the real hook you delivered.' },
   { q: 'Can it write scripts, not just score them?', a: 'Yes — on Pro and Agency. The Studio generates full short-form scripts from an idea, direct-response ad scripts, batches of hooks, and rewrites your script to maximize its scores. Agency adds a content calendar, client brand profiles, bulk analysis, and team seats. Output works in your language too.' },
   { q: 'How do credits work?', a: 'An idea report costs 1 credit and a video report costs 5 (it includes transcription). Free accounts get 10 starter credits; subscriptions refill a monthly bucket; or top up anytime with a credit pack.' },
@@ -94,8 +96,8 @@ export default function Landing() {
           <span className="bg-gradient-to-r from-pink-500 to-orange-500 bg-clip-text text-transparent"> before you post it.</span>
         </h1>
         <p className="mt-6 text-lg sm:text-xl text-slate-600 font-medium max-w-2xl mx-auto leading-relaxed">
-          Hyperyzer scores your hook, retention, and viral potential, then hands you the
-          best hashtags and the best time to post — in seconds, with the exact fixes to get more views.
+          Hyperyzer scores your hook, retention, and viral potential — then <span className="font-bold text-slate-800">rewrites your hook</span>,
+          suggests better titles, and hands you a ready caption, the best hashtags, and the best time to post. In seconds.
         </p>
         <div className="mt-9 flex flex-col sm:flex-row items-center justify-center gap-3">
           <Link href="/signup" className="group inline-flex items-center justify-center gap-2 px-7 py-3.5 rounded-xl text-lg font-bold text-white bg-gradient-to-r from-pink-500 to-orange-500 shadow-[0_10px_30px_rgba(236,72,153,0.3)] hover:shadow-[0_10px_35px_rgba(236,72,153,0.45)] hover:scale-[1.02] active:scale-[0.98] transition-all">
@@ -113,7 +115,10 @@ export default function Landing() {
         <div className="mt-14 max-w-3xl mx-auto bg-white/80 backdrop-blur-xl rounded-3xl border border-black/5 shadow-xl p-6 sm:p-8 text-left">
           <div className="flex items-center justify-between mb-5 pb-4 border-b border-slate-100">
             <p className="font-bold text-slate-800 truncate pr-3">&ldquo;I Survived 100 Days in Hardcore Minecraft&rdquo;</p>
-            <span className="shrink-0 inline-flex items-center gap-1.5 text-xs font-bold text-pink-700 bg-pink-100 px-2.5 py-1 rounded-lg border border-pink-200"><Sparkles className="w-3 h-3" /> AI</span>
+            <div className="shrink-0 flex items-center gap-2">
+              <span className="inline-flex items-center gap-1 text-xs font-black text-white bg-slate-900 px-2.5 py-1 rounded-lg">A · 85</span>
+              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-pink-700 bg-pink-100 px-2.5 py-1 rounded-lg border border-pink-200"><Sparkles className="w-3 h-3" /> AI</span>
+            </div>
           </div>
           <div className="grid grid-cols-3 gap-3 sm:gap-4">
             {[{ l: 'Hook', v: 88, c: 'pink' }, { l: 'Retention', v: 74, c: 'emerald' }, { l: 'Viral', v: 91, c: 'orange' }].map((s) => (
@@ -141,6 +146,12 @@ export default function Landing() {
               <p className="text-sm font-bold text-slate-800 mt-2">Tue & Thu, 6–9 PM</p>
               <p className="text-xs text-slate-500 font-medium">When your audience is most active (ET).</p>
             </div>
+          </div>
+          <div className="mt-4 bg-pink-50/70 rounded-2xl p-4 border border-pink-100">
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5"><Wand2 className="w-3 h-3" /> Stronger hook — ready to say</p>
+            <p className="text-sm font-semibold text-slate-800 mt-2 leading-relaxed">
+              &ldquo;If I take one heart of damage in the next 100 days, I&rsquo;m deleting this channel. Day 1 almost ended everything.&rdquo;
+            </p>
           </div>
           <p className="mt-5 text-slate-600 font-medium leading-relaxed text-sm sm:text-base">
             <span className="font-bold text-slate-800">Feedback:</span> Strong curiosity gap and high stakes.
@@ -176,9 +187,9 @@ export default function Landing() {
       </section>
 
       {/* Features */}
-      <section className="max-w-5xl mx-auto px-5 sm:px-8 py-14">
+      <section className="max-w-6xl mx-auto px-5 sm:px-8 py-14">
         <h2 className="text-center text-3xl sm:text-4xl font-extrabold tracking-tight mb-12">Everything you need to grow</h2>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
           {FEATURES.map((f) => (
             <div key={f.title} className="bg-white/70 backdrop-blur-xl rounded-2xl border border-black/5 shadow-sm p-6">
               <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-pink-500/10 to-orange-500/10 flex items-center justify-center mb-4">
@@ -264,7 +275,7 @@ export default function Landing() {
       <section className="max-w-4xl mx-auto px-5 sm:px-8 py-16 text-center">
         <div className="bg-white/80 backdrop-blur-xl rounded-3xl border border-black/5 shadow-xl p-10 sm:p-14">
           <h2 className="text-3xl sm:text-4xl font-black tracking-tight">Stop guessing. Start scoring.</h2>
-          <p className="mt-4 text-lg text-slate-600 font-medium max-w-xl mx-auto">Get your scores, hashtags, and best time to post — in the next 60 seconds.</p>
+          <p className="mt-4 text-lg text-slate-600 font-medium max-w-xl mx-auto">Get your grade, a rewritten hook, hashtags, and your best time to post — in the next 60 seconds.</p>
           <Link href="/signup" className="mt-8 inline-flex items-center justify-center gap-2 px-8 py-4 rounded-xl text-lg font-bold text-white bg-gradient-to-r from-pink-500 to-orange-500 shadow-[0_10px_30px_rgba(236,72,153,0.3)] hover:scale-[1.02] active:scale-[0.98] transition-all">
             Analyze my video free <ArrowRight className="w-5 h-5" />
           </Link>

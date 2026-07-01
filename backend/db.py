@@ -38,6 +38,7 @@ _ADDED_COLUMNS: dict[str, dict[str, str]] = {
         "platform": "VARCHAR NOT NULL DEFAULT ''",
         "hashtags": "VARCHAR NOT NULL DEFAULT ''",
         "best_times": "VARCHAR NOT NULL DEFAULT ''",
+        "improvements": "VARCHAR NOT NULL DEFAULT ''",
     },
 }
 

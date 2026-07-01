@@ -6,6 +6,7 @@ import {
   Play, Sparkles, History, BrainCircuit, CheckCircle2, TrendingUp, Target, Zap,
   Clock, AlertCircle, Key, CreditCard, ChevronRight, LogOut, User as UserIcon,
   Lightbulb, Video, UploadCloud, FileText, Crown, Hash, Copy, Check, Settings,
+  Wand2, PenLine, MessageSquare, AlertTriangle, ArrowLeftRight, X, Gauge,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { api, API_URL, getToken } from '@/lib/api';
@@ -57,6 +58,14 @@ const PAY_TOKEN_KEY = 'va_pay_token';
 interface Hashtags { primary: string[]; niche: string[]; broad: string[] }
 interface TimeSlot { day: string; time: string; why: string }
 interface BestTimes { timezone_note?: string; summary?: string; slots?: TimeSlot[] }
+interface RetentionRisk { moment?: string; risk?: string; fix?: string }
+interface Improvements {
+  verdict?: string;
+  hook_rewrites?: string[];
+  title_suggestions?: string[];
+  caption?: string;
+  retention_risks?: RetentionRisk[];
+}
 
 interface AnalysisResult {
   hook_score: number;
@@ -65,8 +74,10 @@ interface AnalysisResult {
   feedback: string;
   hashtags?: Hashtags;
   best_times?: BestTimes;
+  improvements?: Improvements;
   transcript?: string | null;
   pay_token_consumed?: boolean;
+  title?: string; // what this report was generated for (survives history restores)
 }
 
 interface HistoryItem {
@@ -81,6 +92,7 @@ interface HistoryItem {
   feedback: string;
   hashtags?: Hashtags;
   best_times?: BestTimes;
+  improvements?: Improvements;
   created_at: string;
 }
 
@@ -118,6 +130,53 @@ function hasHashtags(h?: Hashtags): boolean {
 function hasTimes(t?: BestTimes): boolean {
   return !!t && ((t.slots?.length || 0) > 0 || !!t.summary);
 }
+function hasImprovements(im?: Improvements): boolean {
+  return !!im && (
+    (im.hook_rewrites?.length || 0) > 0 || (im.title_suggestions?.length || 0) > 0 ||
+    (im.retention_risks?.length || 0) > 0 || !!im.caption || !!im.verdict
+  );
+}
+
+type Scored = { hook_score: number; retention_score: number; viral_score: number };
+// Hook weighs heaviest: nothing else matters if viewers swipe in the first 5 seconds.
+function overallScore(r: Scored): number {
+  return Math.round(0.4 * r.hook_score + 0.3 * r.retention_score + 0.3 * r.viral_score);
+}
+function gradeFor(v: number): { grade: string; word: string } {
+  if (v >= 85) return { grade: 'A+', word: 'Post-ready' };
+  if (v >= 75) return { grade: 'A', word: 'Strong' };
+  if (v >= 65) return { grade: 'B', word: 'Good — fix & post' };
+  if (v >= 55) return { grade: 'C', word: 'Needs work' };
+  if (v >= 45) return { grade: 'D', word: 'Rework the hook' };
+  return { grade: 'F', word: 'Rethink the idea' };
+}
+
+function buildReportText(r: AnalysisResult, title: string): string {
+  const im = r.improvements;
+  const lines: string[] = [
+    `Hyperyzer report — ${title}`,
+    ``,
+    `Overall ${overallScore(r)}/100 (${gradeFor(overallScore(r)).grade}) · Hook ${r.hook_score} · Retention ${r.retention_score} · Viral ${r.viral_score}`,
+  ];
+  if (im?.verdict) lines.push('', `Verdict: ${im.verdict}`);
+  if (r.feedback) lines.push('', `Feedback: ${r.feedback}`);
+  if (im?.hook_rewrites?.length) lines.push('', 'Stronger hooks:', ...im.hook_rewrites.map((h, i) => `${i + 1}. ${h}`));
+  if (im?.title_suggestions?.length) lines.push('', 'Better titles:', ...im.title_suggestions.map((t) => `- ${t}`));
+  if (im?.caption) lines.push('', `Caption: ${im.caption}`);
+  if (im?.retention_risks?.length) {
+    lines.push('', 'Retention risks:');
+    im.retention_risks.forEach((risk) => lines.push(`- ${[risk.moment, risk.risk, risk.fix && `Fix: ${risk.fix}`].filter(Boolean).join(' — ')}`));
+  }
+  if (hasHashtags(r.hashtags)) {
+    const all = [...(r.hashtags!.primary || []), ...(r.hashtags!.niche || []), ...(r.hashtags!.broad || [])];
+    lines.push('', `Hashtags: ${all.join(' ')}`);
+  }
+  if (hasTimes(r.best_times)) {
+    lines.push('', 'Best times to post:');
+    (r.best_times!.slots || []).forEach((s) => lines.push(`- ${[s.day, s.time].filter(Boolean).join(' ')}${s.why ? ` (${s.why})` : ''}`));
+  }
+  return lines.join('\n');
+}
 
 export default function Home() {
   const { user, logout, refresh } = useAuth();
@@ -139,6 +198,8 @@ export default function Home() {
   const [notice, setNotice] = useState('');
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [config, setConfig] = useState<AppConfig | null>(null);
+  const [compareMode, setCompareMode] = useState(false);
+  const [compareIds, setCompareIds] = useState<number[]>([]);
 
   const charCount = script.length;
   const wordCount = script.trim() ? script.trim().split(/\s+/).length : 0;
@@ -251,7 +312,7 @@ export default function Home() {
           pay_token: consumePayTokenIfAny(),
         }),
       });
-      setResult(data);
+      setResult({ ...data, title });
       await afterSuccess(!!data.pay_token_consumed);
     } catch (err: any) {
       setError(err.message || 'An error occurred while connecting to the server.');
@@ -304,7 +365,9 @@ export default function Home() {
               setResult({
                 hook_score: job.hook_score, retention_score: job.retention_score,
                 viral_score: job.viral_score, feedback: job.feedback,
-                hashtags: job.hashtags, best_times: job.best_times, transcript: job.transcript,
+                hashtags: job.hashtags, best_times: job.best_times,
+                improvements: job.improvements, transcript: job.transcript,
+                title,
               });
               resolve();
             } else if (job.status === 'error') {
@@ -369,9 +432,22 @@ export default function Home() {
       hook_score: item.hook_score, retention_score: item.retention_score,
       viral_score: item.viral_score, feedback: item.feedback,
       hashtags: item.hashtags, best_times: item.best_times,
+      improvements: item.improvements,
       transcript: item.transcript ?? undefined,
+      title: item.title,
     });
   };
+
+  const toggleCompareId = (id: number) => {
+    setCompareIds((prev) => {
+      if (prev.includes(id)) return prev.filter((x) => x !== id);
+      if (prev.length >= 2) return [prev[1], id]; // keep the most recent pick
+      return [...prev, id];
+    });
+  };
+  const comparePair = compareIds
+    .map((id) => history.find((h) => h.id === id))
+    .filter(Boolean) as HistoryItem[];
 
   const canSubmit = mode === 'idea' ? !!(title.trim() && script.trim()) : !!(title.trim() && videoFile);
   const cost = mode === 'idea' ? config?.idea_credit_cost : config?.video_credit_cost;
@@ -469,9 +545,23 @@ export default function Home() {
         </nav>
 
         <div className="mt-8 px-6 flex-1 overflow-hidden flex flex-col">
-          <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-1.5">
-            <History className="w-3.5 h-3.5" /> Recent Analyses
-          </h4>
+          <div className="flex items-center justify-between mb-4">
+            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+              <History className="w-3.5 h-3.5" /> Recent Analyses
+            </h4>
+            {user && history.length >= 2 && (
+              <button onClick={() => { setCompareMode(!compareMode); setCompareIds([]); }}
+                className={`flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-md border transition-colors cursor-pointer ${compareMode ? 'bg-pink-500 text-white border-pink-500' : 'text-slate-500 border-slate-200 bg-white/60 hover:border-pink-300 hover:text-pink-600'}`}>
+                <ArrowLeftRight className="w-3 h-3" /> {compareMode ? 'Done' : 'Compare'}
+              </button>
+            )}
+          </div>
+          {user && history.length >= 2 && <TrendSparkline history={history} />}
+          {compareMode && (
+            <p className="text-[11px] text-pink-600 font-semibold mb-2">
+              Pick two analyses to compare side by side ({comparePair.length}/2).
+            </p>
+          )}
           <div className="flex-1 overflow-y-auto space-y-2 custom-scrollbar pr-2">
             {!user ? (
               <p className="text-sm text-slate-400 font-medium leading-relaxed">
@@ -482,12 +572,21 @@ export default function Home() {
             ) : (
               history.map((item) => {
                 const { label, color } = scoreLabel(item.viral_score);
+                const selected = compareIds.includes(item.id);
                 return (
-                  <div key={item.id} className="flex items-center justify-between p-3 rounded-lg hover:bg-white/50 cursor-pointer transition-colors border border-transparent hover:border-black/5"
-                    onClick={() => restoreFromHistory(item)}>
-                    <div className="min-w-0 mr-3">
-                      <p className="text-sm font-semibold text-slate-700 truncate">{item.title}</p>
-                      <p className="text-[10px] text-slate-400 font-bold uppercase">{item.kind}</p>
+                  <div key={item.id}
+                    className={`flex items-center justify-between p-3 rounded-lg cursor-pointer transition-colors border ${selected ? 'bg-pink-50 border-pink-300' : 'border-transparent hover:bg-white/50 hover:border-black/5'}`}
+                    onClick={() => (compareMode ? toggleCompareId(item.id) : restoreFromHistory(item))}>
+                    <div className="min-w-0 mr-3 flex items-center gap-2">
+                      {compareMode && (
+                        <span className={`shrink-0 w-4 h-4 rounded border flex items-center justify-center ${selected ? 'bg-pink-500 border-pink-500' : 'border-slate-300 bg-white'}`}>
+                          {selected && <Check className="w-3 h-3 text-white" />}
+                        </span>
+                      )}
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-slate-700 truncate">{item.title}</p>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase">{item.kind}</p>
+                      </div>
                     </div>
                     <span className={`text-[10px] font-bold px-2 py-1 rounded-md border shrink-0 ${color}`}>{label}</span>
                   </div>
@@ -723,16 +822,24 @@ export default function Home() {
             )}
 
             <div className="lg:flex-1 bg-slate-50/80 rounded-[24px] p-6 md:p-8 flex flex-col relative lg:overflow-y-auto custom-scrollbar border border-black/[0.06] shadow-inner min-h-[300px]">
+              {compareMode && comparePair.length === 2 ? (
+                <CompareCard a={comparePair[0]} b={comparePair[1]} onClose={() => { setCompareMode(false); setCompareIds([]); }} />
+              ) : (
+              <>
               <div className="flex items-center justify-between mb-6 pb-4 border-b border-slate-200/60">
                 <h3 className="text-2xl font-extrabold tracking-tight text-slate-900">Your Report</h3>
                 {result ? (
-                  <div className="flex items-center gap-1.5 px-3 py-1 bg-pink-100 rounded-lg text-pink-700 text-xs font-bold uppercase tracking-wider shadow-sm border border-pink-200"><Sparkles className="w-3 h-3" /> AI Generated</div>
+                  <div className="flex items-center gap-2">
+                    <CopyButton text={buildReportText(result, result.title || title)} label="Copy report" />
+                    <div className="flex items-center gap-1.5 px-3 py-1 bg-pink-100 rounded-lg text-pink-700 text-xs font-bold uppercase tracking-wider shadow-sm border border-pink-200"><Sparkles className="w-3 h-3" /> AI Generated</div>
+                  </div>
                 ) : (
                   <div className="flex items-center gap-1.5 px-3 py-1 bg-slate-200/60 rounded-lg text-slate-500 text-xs font-bold uppercase tracking-wider"><Clock className="w-3 h-3" /> Awaiting Input</div>
                 )}
               </div>
 
               <div className={`grid grid-cols-1 gap-4 mb-6 relative ${result ? 'stagger' : ''}`}>
+                <OverallCard result={result} />
                 <ScoreCard label="Hook Strength" value={result?.hook_score} color="pink" Icon={Target} />
                 <ScoreCard label="Retention Predict" value={result?.retention_score} color="emerald" Icon={TrendingUp} delay="delay-150" />
                 <ScoreCard label="Viral Potential" value={result?.viral_score} color="orange" Icon={Zap} delay="delay-300" />
@@ -769,6 +876,7 @@ export default function Home() {
                 )}
               </div>
 
+              {result && hasImprovements(result.improvements) && <ImprovementsCard improvements={result.improvements!} />}
               {result && hasHashtags(result.hashtags) && <HashtagsCard hashtags={result.hashtags!} />}
               {result && hasTimes(result.best_times) && <BestTimesCard times={result.best_times!} />}
 
@@ -777,6 +885,8 @@ export default function Home() {
                   <h4 className="text-lg font-bold mb-3 flex items-center gap-2 text-slate-900"><FileText className="w-5 h-5 text-pink-500" /> Transcript</h4>
                   <p className="text-slate-600 leading-relaxed text-sm font-medium whitespace-pre-wrap">{result.transcript}</p>
                 </div>
+              )}
+              </>
               )}
             </div>
           </div>
@@ -867,6 +977,226 @@ function HashtagsCard({ hashtags }: { hashtags: Hashtags }) {
       <TagGroup title="Primary" tags={hashtags.primary} />
       <TagGroup title="Niche" tags={hashtags.niche} />
       <TagGroup title="Broad reach" tags={hashtags.broad} />
+    </div>
+  );
+}
+
+function CopyButton({ text, label, compact = false }: { text: string; label?: string; compact?: boolean }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch { /* clipboard unavailable */ }
+  };
+  if (compact) {
+    return (
+      <button onClick={copy} title="Copy" className="shrink-0 p-1.5 rounded-md text-slate-400 hover:text-pink-600 hover:bg-white transition-colors cursor-pointer">
+        {copied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+      </button>
+    );
+  }
+  return (
+    <button onClick={copy} className="flex items-center gap-1.5 text-xs font-bold text-slate-600 bg-white hover:bg-slate-100 border border-slate-200 px-3 py-1.5 rounded-lg transition-colors cursor-pointer">
+      {copied ? <><Check className="w-3.5 h-3.5 text-emerald-500" /> Copied</> : <><Copy className="w-3.5 h-3.5" /> {label || 'Copy'}</>}
+    </button>
+  );
+}
+
+function OverallCard({ result }: { result: AnalysisResult | null }) {
+  const has = !!result;
+  const value = result ? overallScore(result) : 0;
+  const { grade, word } = gradeFor(value);
+  const verdict = result?.improvements?.verdict;
+  const R = 30;
+  const C = 2 * Math.PI * R;
+  return (
+    <div className={`p-4 rounded-2xl border transition-all duration-500 relative overflow-hidden flex items-center gap-4 ${has ? 'bg-slate-900 border-slate-900 shadow-md' : 'bg-slate-100/50 border-slate-200/60'}`}>
+      <div className="relative w-[76px] h-[76px] shrink-0">
+        <svg viewBox="0 0 76 76" className="w-full h-full -rotate-90">
+          <circle cx="38" cy="38" r={R} fill="none" strokeWidth="7" className={has ? 'stroke-white/15' : 'stroke-slate-200'} />
+          {has && (
+            <circle cx="38" cy="38" r={R} fill="none" strokeWidth="7" strokeLinecap="round"
+              stroke="url(#overall-grad)" strokeDasharray={C} strokeDashoffset={C * (1 - value / 100)}
+              style={{ transition: 'stroke-dashoffset 1s ease-out' }} />
+          )}
+          <defs>
+            <linearGradient id="overall-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#ec4899" />
+              <stop offset="100%" stopColor="#f97316" />
+            </linearGradient>
+          </defs>
+        </svg>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span className={`text-xl font-black ${has ? 'text-white' : 'text-slate-300'}`}>{has ? value : '--'}</span>
+        </div>
+      </div>
+      <div className="min-w-0">
+        <p className={`text-xs font-bold uppercase tracking-wider mb-0.5 flex items-center gap-1.5 ${has ? 'text-white/60' : 'text-slate-400'}`}>
+          <Gauge className="w-3.5 h-3.5" /> Overall
+        </p>
+        {has ? (
+          <>
+            <p className="text-white font-black text-lg leading-tight">{grade} · {word}</p>
+            {verdict && <p className="text-white/70 text-sm font-medium leading-snug mt-1">{verdict}</p>}
+          </>
+        ) : (
+          <p className="text-slate-300 font-bold text-lg">Awaiting analysis</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ImprovementsCard({ improvements }: { improvements: Improvements }) {
+  const hooks = improvements.hook_rewrites || [];
+  const titles = improvements.title_suggestions || [];
+  const risks = improvements.retention_risks || [];
+  return (
+    <div className="mt-4 bg-white border-2 border-pink-100 p-6 rounded-2xl">
+      <h4 className="text-lg font-bold mb-1 flex items-center gap-2 text-slate-900"><Wand2 className="w-5 h-5 text-pink-500" /> Fix It — ready to use</h4>
+      <p className="text-xs text-slate-400 font-semibold mb-4">Rewrites generated for this exact video. Copy, tweak, film.</p>
+
+      {hooks.length > 0 && (
+        <div className="mb-5">
+          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5"><Zap className="w-3.5 h-3.5" /> Stronger hooks</p>
+          <div className="space-y-2">
+            {hooks.map((h, i) => (
+              <div key={i} className="flex items-start gap-3 p-3 rounded-xl bg-pink-50/60 border border-pink-100">
+                <div className="shrink-0 w-6 h-6 rounded-full bg-gradient-to-br from-pink-500 to-orange-500 text-white text-[11px] font-black flex items-center justify-center mt-0.5">{i + 1}</div>
+                <p className="flex-1 text-sm font-semibold text-slate-800 leading-relaxed">&ldquo;{h}&rdquo;</p>
+                <CopyButton text={h} compact />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {titles.length > 0 && (
+        <div className="mb-5">
+          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5"><PenLine className="w-3.5 h-3.5" /> Better titles</p>
+          <div className="space-y-2">
+            {titles.map((t, i) => (
+              <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100">
+                <p className="flex-1 text-sm font-semibold text-slate-800">{t}</p>
+                <CopyButton text={t} compact />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {improvements.caption && (
+        <div className="mb-5">
+          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5"><MessageSquare className="w-3.5 h-3.5" /> Ready-to-post caption</p>
+          <div className="flex items-start gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100">
+            <p className="flex-1 text-sm font-medium text-slate-700 leading-relaxed whitespace-pre-wrap">{improvements.caption}</p>
+            <CopyButton text={improvements.caption} compact />
+          </div>
+        </div>
+      )}
+
+      {risks.length > 0 && (
+        <div className="last:mb-0">
+          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5"><AlertTriangle className="w-3.5 h-3.5" /> Where viewers may drop</p>
+          <div className="space-y-2">
+            {risks.map((r, i) => (
+              <div key={i} className="p-3 rounded-xl bg-amber-50/70 border border-amber-100">
+                <p className="text-sm font-bold text-slate-800">{r.moment || `Risk ${i + 1}`}</p>
+                {r.risk && <p className="text-xs text-slate-600 font-medium leading-relaxed mt-0.5">{r.risk}</p>}
+                {r.fix && <p className="text-xs text-emerald-700 font-semibold leading-relaxed mt-1">Fix: {r.fix}</p>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TrendSparkline({ history }: { history: HistoryItem[] }) {
+  const points = history.slice(0, 12).map((h) => overallScore(h)).reverse();
+  if (points.length < 2) return null;
+  const avg = Math.round(points.reduce((a, b) => a + b, 0) / points.length);
+  const latest = points[points.length - 1];
+  const W = 220, H = 40, P = 4;
+  const step = (W - P * 2) / (points.length - 1);
+  const y = (v: number) => H - P - (v / 100) * (H - P * 2);
+  const path = points.map((v, i) => `${i === 0 ? 'M' : 'L'} ${(P + i * step).toFixed(1)} ${y(v).toFixed(1)}`).join(' ');
+  return (
+    <div className="mb-3 p-3 rounded-xl bg-white/60 border border-black/5">
+      <div className="flex items-center justify-between mb-1">
+        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Score trend</p>
+        <p className={`text-[10px] font-bold ${latest >= avg ? 'text-emerald-600' : 'text-amber-600'}`}>last {latest} · avg {avg}</p>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-9" preserveAspectRatio="none">
+        <defs>
+          <linearGradient id="trend-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#f97316" />
+            <stop offset="100%" stopColor="#ec4899" />
+          </linearGradient>
+        </defs>
+        <path d={path} fill="none" stroke="url(#trend-grad)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx={P + (points.length - 1) * step} cy={y(latest)} r="3" fill="#ec4899" />
+      </svg>
+    </div>
+  );
+}
+
+function CompareCard({ a, b, onClose }: { a: HistoryItem; b: HistoryItem; onClose: () => void }) {
+  const rows = [
+    { label: 'Overall', a: overallScore(a), b: overallScore(b) },
+    { label: 'Hook', a: a.hook_score, b: b.hook_score },
+    { label: 'Retention', a: a.retention_score, b: b.retention_score },
+    { label: 'Viral', a: a.viral_score, b: b.viral_score },
+  ];
+  const winner = overallScore(a) === overallScore(b) ? null : overallScore(a) > overallScore(b) ? 'A' : 'B';
+  return (
+    <div className="animate-fade-in">
+      <div className="flex items-center justify-between mb-6 pb-4 border-b border-slate-200/60">
+        <h3 className="text-2xl font-extrabold tracking-tight text-slate-900 flex items-center gap-2"><ArrowLeftRight className="w-5 h-5 text-pink-500" /> Side by Side</h3>
+        <button onClick={onClose} title="Close comparison" className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-white transition-colors cursor-pointer"><X className="w-5 h-5" /></button>
+      </div>
+      <div className="grid grid-cols-2 gap-3 mb-5">
+        {[{ item: a, tag: 'A', win: winner === 'A' }, { item: b, tag: 'B', win: winner === 'B' }].map(({ item, tag, win }) => (
+          <div key={tag} className={`p-4 rounded-2xl border-2 ${win ? 'bg-white border-pink-300 shadow-sm' : 'bg-white/70 border-slate-100'}`}>
+            <div className="flex items-center gap-2 mb-1">
+              <span className={`w-5 h-5 rounded-md text-[11px] font-black flex items-center justify-center text-white ${tag === 'A' ? 'bg-pink-500' : 'bg-orange-500'}`}>{tag}</span>
+              {win && <span className="text-[10px] font-black uppercase tracking-wider text-pink-600 bg-pink-100 border border-pink-200 px-1.5 py-0.5 rounded">Winner</span>}
+            </div>
+            <p className="text-sm font-bold text-slate-800 leading-snug">{item.title}</p>
+            <p className="text-[10px] text-slate-400 font-bold uppercase mt-1">{item.kind}{item.platform ? ` · ${item.platform}` : ''}</p>
+          </div>
+        ))}
+      </div>
+      <div className="space-y-3">
+        {rows.map((r) => {
+          const delta = r.a - r.b;
+          return (
+            <div key={r.label} className="bg-white border-2 border-slate-100 rounded-2xl p-4">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{r.label}</p>
+                <p className={`text-[11px] font-black ${delta === 0 ? 'text-slate-400' : delta > 0 ? 'text-pink-600' : 'text-orange-600'}`}>
+                  {delta === 0 ? 'Tied' : delta > 0 ? `A +${delta}` : `B +${-delta}`}
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                {[{ v: r.a, bar: 'bg-pink-500', win: r.a >= r.b }, { v: r.b, bar: 'bg-orange-500', win: r.b >= r.a }].map((side, i) => (
+                  <div key={i}>
+                    <p className={`text-lg font-black ${side.win ? 'text-slate-900' : 'text-slate-400'}`}>{side.v}<span className="text-xs font-bold text-slate-400">/100</span></p>
+                    <div className="mt-1 w-full bg-slate-200/70 rounded-full h-1.5 overflow-hidden">
+                      <div className={`h-1.5 rounded-full ${side.bar}`} style={{ width: `${side.v}%` }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <p className="text-xs text-slate-400 font-medium mt-4">Tip: score two hooks for the same video as separate ideas, then compare them here before you film.</p>
     </div>
   );
 }

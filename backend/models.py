@@ -62,12 +62,15 @@ class Analysis(SQLModel, table=True):
     retention_score: int = 0
     viral_score: int = 0
     feedback: str = ""
-    # JSON-encoded optimization extras (see services/report.py for the shape):
-    #   hashtags  -> {"primary": [...], "niche": [...], "broad": [...]}
-    #   best_times-> {"timezone_note": str, "summary": str,
-    #                 "slots": [{"day","time","why"}]}
+    # JSON-encoded optimization extras (see services/scoring.py for the shapes):
+    #   hashtags    -> {"primary": [...], "niche": [...], "broad": [...]}
+    #   best_times  -> {"timezone_note": str, "summary": str,
+    #                   "slots": [{"day","time","why"}]}
+    #   improvements-> {"verdict": str, "hook_rewrites": [...], "title_suggestions": [...],
+    #                   "caption": str, "retention_risks": [{"moment","risk","fix"}]}
     hashtags: str = ""
     best_times: str = ""
+    improvements: str = ""
     created_at: datetime = Field(default_factory=_utcnow)
 
 

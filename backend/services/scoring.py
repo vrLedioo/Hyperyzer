@@ -2,6 +2,8 @@
 
 Produces a full "Hyperyzer report" in a single model call:
   - hook / retention / viral scores (0-100) + actionable feedback
+  - fix-it improvements: verdict, rewritten hooks, better titles, a ready
+    caption, and the specific moments where retention is at risk
   - best hashtags to use (primary / niche / broad), platform-tuned
   - best times to post (ranked slots + why), platform- and audience-tuned
 
@@ -9,8 +11,9 @@ Provider-agnostic: works with OpenAI cloud or any OpenAI-compatible endpoint
 (e.g. a local Ollama server), so it can run with no OpenAI key.
 
 The scores + feedback are the core deliverable and MUST parse or the call fails.
-The hashtags + timing are high-value extras: if a (small/local) model omits or
-mangles them, we degrade gracefully to empty structures instead of failing.
+The improvements + hashtags + timing are high-value extras: if a (small/local)
+model omits or mangles them, we degrade gracefully to empty structures instead
+of failing.
 """
 import re
 from dataclasses import dataclass, field
@@ -31,6 +34,17 @@ and the target AUDIENCE. Return ONE JSON object with EXACTLY this shape and noth
   "retention_score": int,   // 0-100: how well pacing prevents drop-off
   "viral_score": int,       // 0-100: how broad and shareable the premise is
   "feedback": "2-3 sentences of harsh, specific, actionable feedback on the hook",
+  "verdict": "ONE short line: the single most important thing to do before posting",
+  "hook_rewrites": [
+    "2-3 rewritten versions of the opening hook, each stronger than the original,
+     ready to be said on camera word-for-word (keep the creator's voice and topic)"
+  ],
+  "title_suggestions": ["2-3 better titles, optimized to stop the scroll"],
+  "caption": "a ready-to-post caption for the platform (1-2 punchy sentences; emoji only where natural)",
+  "retention_risks": [
+    {"moment": "where viewers drop (e.g. 'seconds 8-12' or 'the mid-section')",
+     "risk": "why they swipe away here", "fix": "the specific change that keeps them"}
+  ],
   "hashtags": {
     "primary": ["3-5 high-intent hashtags closest to THIS exact video"],
     "niche": ["5-8 niche/community hashtags for the target audience"],
@@ -47,6 +61,8 @@ and the target AUDIENCE. Return ONE JSON object with EXACTLY this shape and noth
 
 Rules:
 - Scores MUST use the full 0-100 scale (NOT 0-10).
+- hook_rewrites must be concrete lines the creator can say, NOT advice about the hook.
+- Give 1-3 retention_risks, most damaging first; each fix must be specific to THIS script.
 - Every hashtag MUST start with '#', be lowercase, contain no spaces, and be
   realistic and currently relevant to the platform.
 - Give 3-5 posting slots, best first, tuned to the platform's algorithm and the
@@ -63,6 +79,9 @@ class ScoreResult:
     # Optimization extras (always present, possibly empty on model failure).
     hashtags: dict = field(default_factory=dict)
     best_times: dict = field(default_factory=dict)
+    # "Fix it" extras: verdict, hook_rewrites, title_suggestions, caption,
+    # retention_risks. Same degradation contract as hashtags/best_times.
+    improvements: dict = field(default_factory=dict)
 
 
 class ScoringError(Exception):
@@ -130,6 +149,43 @@ def _clean_best_times(v) -> dict:
     }
 
 
+def _clean_str_list(v, cap: int, max_len: int) -> list[str]:
+    out: list[str] = []
+    if isinstance(v, list):
+        for item in v:
+            if isinstance(item, str):
+                s = item.strip()
+                if s:
+                    out.append(s[:max_len])
+            if len(out) >= cap:
+                break
+    return out
+
+
+def _clean_retention_risks(v) -> list[dict]:
+    risks: list[dict] = []
+    if isinstance(v, list):
+        for r in v[:3]:
+            if isinstance(r, dict):
+                moment = str(r.get("moment", "")).strip()[:120]
+                risk = str(r.get("risk", "")).strip()[:300]
+                fix = str(r.get("fix", "")).strip()[:300]
+                if risk or fix:
+                    risks.append({"moment": moment, "risk": risk, "fix": fix})
+    return risks
+
+
+def _clean_improvements(data: dict) -> dict:
+    """Normalize the fix-it extras; every field degrades to empty independently."""
+    return {
+        "verdict": str(data.get("verdict", "") or "").strip()[:300],
+        "hook_rewrites": _clean_str_list(data.get("hook_rewrites"), 3, 600),
+        "title_suggestions": _clean_str_list(data.get("title_suggestions"), 3, 200),
+        "caption": str(data.get("caption", "") or "").strip()[:600],
+        "retention_risks": _clean_retention_risks(data.get("retention_risks")),
+    }
+
+
 def _parse(content: str) -> dict:
     try:
         return parse_json_response(content, prefer_key="hook_score")
@@ -143,13 +199,15 @@ def _language_directive(language: Optional[str]) -> str:
     lang = (language or "").strip()
     if lang:
         return (
-            f"\n\nIMPORTANT: Write the feedback, the hashtags, and all best_times text in {lang}. "
+            f"\n\nIMPORTANT: Write the feedback, verdict, hook_rewrites, title_suggestions, "
+            f"caption, retention_risks, hashtags, and all best_times text in {lang}. "
             "Keep every JSON key exactly as written above (in English); do NOT translate the keys."
         )
     return (
-        "\n\nIMPORTANT: Write the feedback, the hashtags, and all best_times text in the SAME "
-        "language as the TITLE/SCRIPT above. Keep every JSON key exactly as written above (in "
-        "English); do NOT translate the keys."
+        "\n\nIMPORTANT: Write the feedback, verdict, hook_rewrites, title_suggestions, caption, "
+        "retention_risks, hashtags, and all best_times text in the SAME language as the "
+        "TITLE/SCRIPT above. Keep every JSON key exactly as written above (in English); do NOT "
+        "translate the keys."
     )
 
 
@@ -204,4 +262,5 @@ def score_content(
         feedback=str(data.get("feedback", "Could not generate detailed feedback.")),
         hashtags=_clean_hashtags(data.get("hashtags")),
         best_times=_clean_best_times(data.get("best_times")),
+        improvements=_clean_improvements(data),
     )
